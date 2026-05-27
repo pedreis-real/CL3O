@@ -107,5 +107,4 @@ The three-cell cross-section is described by fixed index maps in `src/cl3o/Const
 
 - The thesis PDF referenced in older code as `docs/TCC.pdf` is not in the repo; the docstring now points to the README instead.
 - `tests/` holds the live suite: `tests/*.py` unit tests (heavy ones marked `slow`) plus the standalone `tests/validation/` scripts. CI (`.github/workflows/ci.yml`) runs `pytest` on Python 3.11/3.12, then the runtime-pipeline gate, plus a frontend `npm run build`.
-- `misc/scripts/` and `misc/artifacts/` hold tuning/sensitivity sweep scripts and their JSON/PNG results.
-- `data/materials/.old/` holds superseded laminate definitions; the active catalogue is the `MAT_*` files directly under `data/materials/`.
+- The active laminate catalogue is the `MAT_*_LaminateData.json` files directly under `data/materials/` (discovered by glob); per-ply JSON lives in `data/materials/plies/`.
