@@ -169,8 +169,8 @@ class RunRepository:
 
     def get_wing_data(self, run_id: str):
         '''Best-matching wing DB as a typed WingData (cached by file path).'''
-        from utils import io_utils as io
-        from geometry.wing import WingData
+        from cl3o.utils import io_utils as io
+        from cl3o.geometry.wing import WingData
         fp = self._wing_path(run_id)
         if fp is None:
             return None
@@ -181,8 +181,8 @@ class RunRepository:
 
     def get_airfoil(self, run_id: str):
         '''AirfoilData for the run's wing (cached by file path).'''
-        from utils import io_utils as io
-        from geometry.airfoil import AirfoilData
+        from cl3o.utils import io_utils as io
+        from cl3o.geometry.airfoil import AirfoilData
         wing = self.get_wing(run_id)
         if wing is None:
             return None

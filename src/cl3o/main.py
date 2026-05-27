@@ -84,7 +84,10 @@ from dataclasses import dataclass, field
 
 import numpy as np
 import matplotlib.pyplot as plt
-import vtk
+try:
+    import vtk                       # only the optional live 3-D viewer needs it
+except ImportError:                  # headless env without OpenGL (e.g. CI)
+    vtk = None
 
 # ================ Default Database Paths ================
 from cl3o.paths import (
@@ -535,6 +538,12 @@ class LivePlotter:
             static_data   : StaticData (wing geometry reference).
             enable_logging: Toggle logger.
         '''
+        if vtk is None:
+            raise RuntimeError(
+                "The live 3-D viewer requires VTK, which failed to import "
+                "(no OpenGL/libGL in this environment). Run with "
+                "live_plot=False or install OpenGL libraries (e.g. libgl1)."
+            )
         self.logger = io.setup_logger(self, enable_logging)
         self.st     = static_data
 
@@ -1043,9 +1052,20 @@ def _resolve_db_specs(
     ]
 
 
-# ================================================================================
-# Software UI
-# ================================================================================
+# ========================================================= #
+# --------------------------------------------------------- #
+# ========================================================= #
+#         /$$$$$$  /$$        /$$$$$$   /$$$$$$             #
+#        /$$__  $$| $$       /$$__  $$ /$$__  $$            #
+#       | $$  \__/| $$      |__/  \ $$| $$  \ $$            #
+#       | $$      | $$         /$$$$$/| $$  | $$            #
+#       | $$      | $$        |___  $$| $$  | $$            #
+#       | $$    $$| $$       /$$  \ $$| $$  | $$            #
+#       |  $$$$$$/| $$$$$$$$|  $$$$$$/|  $$$$$$/            #
+#        \______/ |________/ \______/  \______/             #
+# ========================================================= #
+# --------------------------------------------------------- #
+# ========================================================= #
 
 if __name__ == "__main__":
     aircraft_name = "DA62"
