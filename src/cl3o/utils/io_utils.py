@@ -21,7 +21,6 @@ from pathlib import Path
 from typing import Optional
 
 import json
-import openpyxl
 import numpy as np
 import re   # Regex
 
@@ -383,6 +382,7 @@ def read_xlsx(
     Returns:
         Dictionary with [key = column header, value = np.ndarray].
     '''
+    import openpyxl  # optional heavy dep; imported here to avoid breaking headless envs
     path = _resolve_path(filepath)
 
     wb = openpyxl.load_workbook(path, data_only=True)
