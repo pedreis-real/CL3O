@@ -31,27 +31,19 @@ from typing import Optional
 
 import numpy as np
 
-# ================ Pathing ================
-_HERE = Path(__file__).resolve().parent           # src/validation/
-_SRC  = _HERE.parent                              # src/
-_ROOT = _SRC.parent                               # project root
-
-if str(_SRC) not in sys.path:
-    sys.path.insert(0, str(_SRC))
-
 # ================ Default Database Paths ================
-_DFLT_MAT_DIR = _ROOT / "data" / "materials"
+from cl3o.paths import MATERIALS_DIR as _DFLT_MAT_DIR
 
 # ================ Module imports ================
 
 # Utilities
-from utils import io_utils as io
+from cl3o.utils import io_utils as io
 
 # Materials
-from materials.laminate import LaminateData
+from cl3o.materials.laminate import LaminateData
 
 # Optimization
-from optimization.de_opt import HistoryData
+from cl3o.optimization.de_opt import HistoryData
 
 
 # ========================================================================

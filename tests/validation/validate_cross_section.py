@@ -20,26 +20,18 @@ from dataclasses import dataclass, field
 import numpy as np
 import matplotlib.pyplot as plt
 
-# ================ Pathing ================
-_HERE = Path(__file__).resolve().parent.parent
-_SRC  = _HERE.parent
-_ROOT = _SRC.parent
-
-if str(_SRC) not in sys.path:
-    sys.path.insert(0, str(_SRC))
-
 # ================ Default Database Paths ================
-_DFLT_AFL_PATH = _ROOT / "data" / "airfoils"
-_DFLT_OUT_PATH = _ROOT / "outputs"
+from cl3o.paths import AIRFOILS_DIR as _DFLT_AFL_PATH, OUTPUTS_DIR as _DFLT_OUT_PATH
 
 # ================ Module imports ================
 # Utilities
-from utils import io_utils as io
+from cl3o.utils import io_utils as io
 
 # Geometry
-from geometry.geom_properties import GeomPropCalculator, GeomData
+from cl3o.geometry.geom_properties import GeomPropCalculator, GeomData
 
 # ================ Global variables ================
+_SHOW_PLOTS = False   # default headless; figures are saved to disk. Set True to display.
 _ENBLE_LOG = True
 _RECALC_PROPS = True
 _USE_BOOM_CENTROID = False
@@ -334,7 +326,8 @@ def plot_section(gd: GeomData) -> None:
 
     plt.tight_layout()
     fig.savefig(f"{_DFLT_OUT_PATH / _AFL.removesuffix("_AirfoilData.json")}.pdf", dpi=300, bbox_inches="tight")
-    plt.show()
+    if _SHOW_PLOTS:
+        plt.show()
 
 
 def geom_sample_analysis(
@@ -454,7 +447,8 @@ def plot_geom_sweep(
         axes[idx].set_visible(False)
 
     plt.tight_layout()
-    plt.show()
+    if _SHOW_PLOTS:
+        plt.show()
 
 
 # ================================================================================

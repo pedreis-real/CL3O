@@ -38,46 +38,41 @@ from types import SimpleNamespace
 import numpy as np
 import pandas as pd
 
-# ================ Pathing ================
-_HERE = Path(__file__).resolve().parent           # src/validation/
-_SRC  = _HERE.parent                              # src/
-_ROOT = _SRC.parent                               # project root
-
-if str(_SRC) not in sys.path:
-    sys.path.insert(0, str(_SRC))
-
 # ================ Default Database Paths ================
-_DFLT_WNG_PATH = _ROOT / "data" / "wings"    / "DA62_WingData.json"
-_DFLT_LDS_PATH = _ROOT / "data" / "loads"    / "da62_ExLoadsData.json"
-_DFLT_AFL_PATH = _ROOT / "data" / "airfoils" / "wortmannfx63137_AirfoilData.json"
-_DFLT_MAT_DIR  = _ROOT / "data" / "materials"
-_DFLT_PLY_DIR  = _ROOT / "data" / "materials" / "plies"
-_DFLT_OUT_DIR  = _ROOT / "outputs" / "fea_validation"
+from cl3o.paths import (
+    WINGS_DIR, LOADS_DIR, AIRFOILS_DIR, OUTPUTS_DIR,
+    MATERIALS_DIR as _DFLT_MAT_DIR,
+    PLIES_DIR     as _DFLT_PLY_DIR,
+)
+_DFLT_WNG_PATH = WINGS_DIR    / "DA62_WingData.json"
+_DFLT_LDS_PATH = LOADS_DIR    / "da62_ExLoadsData.json"
+_DFLT_AFL_PATH = AIRFOILS_DIR / "wortmannfx63137_AirfoilData.json"
+_DFLT_OUT_DIR  = OUTPUTS_DIR  / "fea_validation"
 
 # ================ Module imports ================
 
 # Utilities
-from utils import io_utils as io
+from cl3o.utils import io_utils as io
 
 # Geometry
-from geometry.wing             import WingData, WingHelper
-from geometry.airfoil          import AirfoilData
-from geometry.geom_properties  import GeomPropCalculator, GeomData
+from cl3o.geometry.wing             import WingData, WingHelper
+from cl3o.geometry.airfoil          import AirfoilData
+from cl3o.geometry.geom_properties  import GeomPropCalculator, GeomData
 
 # Materials
-from materials.laminate        import LaminateData, PlyData
+from cl3o.materials.laminate        import LaminateData, PlyData
 
 # Finite Element Analysis
-from fea.loads.load_mapper     import ExLoadsData
-from fea.elements.beam_element import BeamElement, BeamData
-from fea.pre.fem_setup         import FemSetup
-from fea.solver.mesh_builder   import MeshBuilder, MeshData
-from fea.solver.static_analysis import LinearStaticSolver, FeaResults
-from fea.post.stress_recovery  import StressRecovery, StressData
-from fea.post.tsw_failure      import TsaiWuFailure, FailureData
+from cl3o.fea.loads.load_mapper     import ExLoadsData
+from cl3o.fea.elements.beam_element import BeamElement, BeamData
+from cl3o.fea.pre.fem_setup         import FemSetup
+from cl3o.fea.solver.mesh_builder   import MeshBuilder, MeshData
+from cl3o.fea.solver.static_analysis import LinearStaticSolver, FeaResults
+from cl3o.fea.post.stress_recovery  import StressRecovery, StressData
+from cl3o.fea.post.tsw_failure      import TsaiWuFailure, FailureData
 
 # Optimization (score module hosts StructuralMass)
-from optimization.fscore       import StructuralMass, ScoreData
+from cl3o.optimization.fscore       import StructuralMass, ScoreData
 
 
 # ================ Validation configuration ================
@@ -87,11 +82,11 @@ from optimization.fscore       import StructuralMass, ScoreData
 # data/materials/MAT_<name>_LaminateData.json and stored as MAT{int} in
 # laminate_db, matching the production main._import_database remapping.
 _LAMINATE_CATALOG : dict[int, str] = {
-    1 : 'MAT_CFRP_QI4',      # 4-ply quasi-isotropic CFRP   ~0.5 mm
-    2 : 'MAT_CFRP_QI8',      # 8-ply quasi-isotropic CFRP   ~1.0 mm
-    3 : 'MAT_CFRP_QI16',     # 16-ply quasi-isotropic CFRP  ~2.0 mm
-    4 : 'MAT_CFRP_UD8',      # 8-ply unidirectional CFRP    ~1.0 mm
-    5 : 'MAT_CFRP_UD12',     # 12-ply unidirectional CFRP   ~1.5 mm
+    1 : 'MAT_CFRP_QI16',     # 16-ply quasi-isotropic CFRP
+    2 : 'MAT_CFRP_QI24',     # 24-ply quasi-isotropic CFRP
+    3 : 'MAT_CFRP_UD16',     # 16-ply unidirectional CFRP
+    4 : 'MAT_CFRP_UD24',     # 24-ply unidirectional CFRP
+    5 : 'MAT_CFRP_AP16',     # 16-ply angle-ply CFRP
 }
 
 # Design vector - one entry per wing control point (n_cpts), mirroring the
@@ -155,7 +150,7 @@ _TIP_MY = -100_000.0
 _DEBUG_ELEM = 0
 
 # Set False to skip PyVista interactive windows (still saves PNG screenshots)
-_SHOW_PLOTS = True
+_SHOW_PLOTS = False   # default headless; figures are saved to disk. Set True to display.
 
 
 # ================================================================================

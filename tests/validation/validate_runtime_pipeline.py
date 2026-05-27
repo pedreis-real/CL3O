@@ -53,47 +53,41 @@ from typing import Callable
 
 import numpy as np
 
-# ================ Pathing ================
-_HERE = Path(__file__).resolve().parent           # src/validation/
-_SRC  = _HERE.parent                              # src/
-_ROOT = _SRC.parent                               # project root
-
-if str(_SRC) not in sys.path:
-    sys.path.insert(0, str(_SRC))
-
 # ================ Default Database Paths ================
-_DFLT_WNG_DIR = _ROOT / "data" / "wings"
-_DFLT_AFL_DIR = _ROOT / "data" / "airfoils"
-_DFLT_MAT_DIR = _ROOT / "data" / "materials"
-_DFLT_OPP_DIR = _ROOT / "data" / "oppoints"
-_DFLT_LDS_DIR = _ROOT / "data" / "loads"
-_DFLT_OUT_DIR = _ROOT / "outputs"
+from cl3o.paths import (
+    WINGS_DIR     as _DFLT_WNG_DIR,
+    AIRFOILS_DIR  as _DFLT_AFL_DIR,
+    MATERIALS_DIR as _DFLT_MAT_DIR,
+    OPPOINTS_DIR  as _DFLT_OPP_DIR,
+    LOADS_DIR     as _DFLT_LDS_DIR,
+    OUTPUTS_DIR   as _DFLT_OUT_DIR,
+)
 
 # ================ Module imports ================
 
 # Constants
-from Constants import DE_HYPERPAR, OPT_LIMS
+from cl3o.Constants import DE_HYPERPAR, OPT_LIMS
 
 # Main entry-points (re-uses everything the CL3O CLI driver builds)
-from main import (
+from cl3o.main import (
     RunCLEO,
     DatabaseSpec, StaticData,
     MainHelpers, _resolve_db_specs,
 )
 
 # Geometry / materials / loads (typed dataclasses)
-from geometry.wing      import WingData, LerpWingData
-from geometry.airfoil   import AirfoilData
-from materials.laminate import LaminateData, PlyData
-from utils.oppoints     import OppData
-from fea.loads.load_mapper import ExLoadsData, InLoadsData
-from fea.pre.fem_setup  import FemPreprocessData
+from cl3o.geometry.wing      import WingData, LerpWingData
+from cl3o.geometry.airfoil   import AirfoilData
+from cl3o.materials.laminate import LaminateData, PlyData
+from cl3o.utils.oppoints     import OppData
+from cl3o.fea.loads.load_mapper import ExLoadsData, InLoadsData
+from cl3o.fea.pre.fem_setup  import FemPreprocessData
 
 # Optimization
-from optimization.de_opt    import (
+from cl3o.optimization.de_opt    import (
     SetupOpt, RunOpt, OptData, HistoryData, OptVars,
 )
-from optimization.fobjective import (
+from cl3o.optimization.fobjective import (
     BuildEvaluator, RuntimeData, FitnessData, FobjectiveHelper,
 )
 
@@ -101,7 +95,6 @@ from optimization.fobjective import (
 # ================ Global variables ================
 _AIRCRAFT    = "DA62"
 _AFL_NAME    = "WortmannFX63137"
-_N_MATERIALS = 5
 
 _TEST_OPT_NAME = "RuntimePipelineTest"
 
@@ -147,14 +140,23 @@ class _Reporter:
             print(tag if not detail else f"{tag}  ::  {detail}")
 
 
+def _discover_materials() -> list[str]:
+    '''Discover the curated laminate catalogue exactly as main.py does:
+    glob MAT_*_LaminateData.json (skips legacy MAT{int} test laminates).'''
+    return sorted(
+        f.stem.removesuffix("_LaminateData")
+        for f in _DFLT_MAT_DIR.glob("MAT_*_LaminateData.json")
+    )
+
+
 def _build_db_specs() -> list[DatabaseSpec]:
     '''Replicate the DA62 spec list assembled at the bottom of main.py.'''
     specs : list[DatabaseSpec] = [
         DatabaseSpec(WingData, _DFLT_WNG_DIR, _AIRCRAFT.lower()),
         DatabaseSpec(AirfoilData, _DFLT_AFL_DIR, _AFL_NAME.lower()),
     ]
-    for k in range(1, _N_MATERIALS + 1):
-        specs.append(DatabaseSpec(LaminateData, _DFLT_MAT_DIR, f"MAT{k}"))
+    for mat_name in _discover_materials():
+        specs.append(DatabaseSpec(LaminateData, _DFLT_MAT_DIR, mat_name))
     specs.append(DatabaseSpec(OppData, _DFLT_OPP_DIR, _AIRCRAFT.lower()))
     specs.append(DatabaseSpec(ExLoadsData, _DFLT_LDS_DIR, _AIRCRAFT.lower()))
     specs.append(DatabaseSpec(InLoadsData, _DFLT_LDS_DIR, _AIRCRAFT.lower()))
@@ -186,9 +188,10 @@ def scenario_database(rep: _Reporter) -> RunCLEO:
 
     db_specs = _build_db_specs()
     MainHelpers.verify_missing_database(db_specs)
+    n_mats = len(_discover_materials())
     rep.expect(
-        "DatabaseSpec list resolves to N=10 entries",
-        len(db_specs) == 10,
+        f"DatabaseSpec list resolves to N={5 + n_mats} entries (5 + {n_mats} laminates)",
+        len(db_specs) == 5 + n_mats,
         f"got {len(db_specs)}",
     )
 
@@ -213,8 +216,8 @@ def scenario_database(rep: _Reporter) -> RunCLEO:
 
     rep.expect("laminate_db is dict",        isinstance(st.laminate_db, dict))
     rep.expect(
-        "laminate_db has all MAT* entries",
-        all(f"MAT{k}" in st.laminate_db for k in range(1, _N_MATERIALS + 1)),
+        "laminate_db has sequential MAT* keys",
+        all(f"MAT{k}" in st.laminate_db for k in range(1, len(st.laminate_db) + 1)),
         f"keys={sorted(st.laminate_db.keys())}",
     )
     rep.expect(
@@ -320,7 +323,7 @@ def scenario_evaluator(rep: _Reporter, runner: RunCLEO) -> None:
     rep.section("Scenario 3 - Evaluator pipeline + RuntimeData fan-out")
 
     setup = runner.static.opt_setup
-    builder = runner.builder
+    builder = runner._builder
     rep.expect("BuildEvaluator stored on runner", isinstance(builder, BuildEvaluator))
     rep.expect("evaluator is callable",            callable(runner.evaluator))
     rep.expect("rt is RuntimeData (pre-eval)",     isinstance(builder.rt, RuntimeData))
@@ -384,23 +387,26 @@ def scenario_evaluator(rep: _Reporter, runner: RunCLEO) -> None:
 
 def scenario_snapshot(rep: _Reporter, runner: RunCLEO) -> None:
     '''Re-evaluating the same X must yield the same fitness, bit-for-bit.'''
-    rep.section("Scenario 4 - BuildEvaluator.snapshot_best determinism")
+    rep.section("Scenario 4 - evaluator determinism + best_rt tracking")
 
-    setup = runner.static.opt_setup
+    setup   = runner.static.opt_setup
+    builder = runner._builder
     X = _midpoint_design(setup)
 
     f1 = float(runner.evaluator(X))
-    rt1_id = id(runner.builder.rt)
-    rt_snap = runner.builder.snapshot_best(X)
-    f2 = float(runner.builder.rt.fitness.total)
-    rt2_id = id(runner.builder.rt)
+    rt1_id = id(builder.rt)
+    f2 = float(runner.evaluator(X))
+    rt2_id = id(builder.rt)
 
-    rep.expect("snapshot_best returns the live rt", rt_snap is runner.builder.rt)
     rep.expect("rt identity preserved across calls", rt1_id == rt2_id)
     rep.expect(
-        "snapshot fitness deterministic on identical X",
+        "fitness deterministic on identical X",
         np.isclose(f1, f2, rtol=0.0, atol=0.0),
         f"f1={f1}, f2={f2}",
+    )
+    rep.expect(
+        "best_rt captured (RuntimeData)",
+        isinstance(builder.best_rt, RuntimeData) and builder.best_rt.fitness is not None,
     )
 
 
@@ -494,7 +500,7 @@ def scenario_de_loop(rep: _Reporter, runner: RunCLEO) -> None:
 
     rep.expect(
         "archive directory created",
-        (out_dir / "opt_files").exists(),
+        (out_dir / "generations").exists(),
     )
     rep.expect(
         "archive manifest.json written",
@@ -507,7 +513,7 @@ def scenario_de_loop(rep: _Reporter, runner: RunCLEO) -> None:
     rep.expect("manifest exposes schema_version", "schema_version" in mani)
     rep.expect(
         "manifest snapshot count matches written pickles",
-        len(mani["snapshots"]) == len(list((out_dir / "opt_files").glob("gen_*.pkl"))),
+        len(mani["snapshots"]) == len(list((out_dir / "generations").glob("gen_*.pkl"))),
     )
 
 
