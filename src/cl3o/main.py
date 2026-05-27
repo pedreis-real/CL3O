@@ -13,7 +13,8 @@ following assumptions:
    structural analysis and Tsai-Wu failure criteria.
 3. It uses Differential Evolution algorithm for optmizing the LS.
 
-See more details in "../ docs / TCC.pdf".
+See the README and the accompanying undergraduate thesis (TCC, UFMG 2026)
+for the full theoretical background.
 
 ========================================================
 | Created by: Pedro Henrique Reis da Silva Lima        |
