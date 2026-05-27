@@ -1,0 +1,25 @@
+# CL3O / Claude
+.claude/
+
+# Run outputs (regenerated per run; pickled snapshots are not portable)
+outputs/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+.pytest_cache/
+.mypy_cache/
+.venv/
+venv/
+
+# Frontend
+node_modules/
+dist/
+.vite/
+*.tsbuildinfo
+
+# Misc
+*.local

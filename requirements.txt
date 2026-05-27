@@ -1,0 +1,4 @@
+# CL3O Visualization UI - backend dependencies
+fastapi>=0.115
+uvicorn[standard]>=0.30
+# numpy is already a core CL3O dependency (used to read the archived arrays)
