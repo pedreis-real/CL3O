@@ -160,12 +160,12 @@ class MainHelpers:
         return char * width
 
     @staticmethod
-    def spec_key(spec: DatabaseSpec) -> str:
+    def spec_key(spec: object) -> str:
         '''Return the dcls class name.'''
         return spec.dcls.__name__
 
     @staticmethod
-    def spec_field_name(spec: DatabaseSpec) -> str:
+    def spec_field_name(spec: object) -> str:
         '''Return the StaticData field name for spec.'''
         name = spec.dcls.__name__
         if name.endswith("Data"):
@@ -173,12 +173,12 @@ class MainHelpers:
         return f"{name.lower()}_db"
 
     @staticmethod
-    def spec_filepath(spec: DatabaseSpec) -> Path:
+    def spec_filepath(spec: object) -> Path:
         '''Return the full JSON file path for spec.'''
         return spec.dirpath / f"{spec.selfhood.lower()}_{spec.dcls.__name__}.json"
 
     @staticmethod
-    def spec_type_nbr(spec: DatabaseSpec) -> int:
+    def spec_type_nbr(spec: object) -> int:
         '''Return the integer type code for spec.dcls.'''
         match spec.dcls.__name__:
             case "WingData":     return 1
@@ -191,7 +191,7 @@ class MainHelpers:
 
     @staticmethod
     def verify_missing_database(
-        db_specs: list[DatabaseSpec]
+        db_specs: list[object]
     ) -> None:
         '''Raise FileNotFoundError if any spec filepath does not exist.'''
         for idx, spec in enumerate(db_specs):
