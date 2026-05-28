@@ -175,7 +175,7 @@ class MainHelpers:
     @staticmethod
     def spec_filepath(spec: object) -> Path:
         '''Return the full JSON file path for spec.'''
-        return spec.dirpath / f"{spec.selfhood.lower()}_{spec.dcls.__name__}.json"
+        return spec.dirpath / f"{spec.selfhood}_{spec.dcls.__name__}.json"
 
     @staticmethod
     def spec_type_nbr(spec: object) -> int:
@@ -305,7 +305,7 @@ class RunCLEO:
         self,
         aircraft_name    : str,
         opt_name         : str,
-        db_specs         : list[DatabaseSpec],
+        db_specs         : list[object],
         bounds_lo        : Optional[np.ndarray] = None,
         bounds_hi        : Optional[np.ndarray] = None,
         de_hyperpar      : dict = DE_HYPERPAR,
@@ -1028,8 +1028,8 @@ class LivePlotter:
 # ================================================================================
 
 def _resolve_db_specs(
-    db_specs: list[DatabaseSpec],
-) -> list[DatabaseSpec]:
+    db_specs: list[object],
+) -> list[object]:
     '''
     Populate each DatabaseSpec's derived fields (key, field_name, filepath,
     type_nbr) by calling the MainHelpers static methods exactly once per spec.
@@ -1090,7 +1090,7 @@ if __name__ == "__main__":
         "WortmannFX63137",
     ]
 
-    database_loading_specs: list[DatabaseSpec] = []
+    database_loading_specs: list[object] = []
     database_loading_specs.append(
         # type_nbr = 1
         DatabaseSpec(WingData, _DFLT_WNG_DIR, f"{aircraft_name.lower()}"),
