@@ -27,6 +27,12 @@ LARGE_DISPL_MS = 1.0e6
 # Weighting factor for the DE objective TotalScore.
 WEIGHTING_FACTOR = 1.0     # e.g. wm = 1000 -> transforms mass in kg to g
 
+# Analyzed lifting-surface side. Selects which half-span the load mapper
+# slices and which sign the spanwise stations carry through the pipeline.
+# "right" -> Y > 0 (root 0 -> tip +b/2);  "left" -> Y < 0 (root 0 -> tip -b/2).
+WING_SIDE = "right"                                   # "right" | "left"
+WING_SIDE_SIGN = +1.0 if WING_SIDE == "right" else -1.0
+
 # Differential Evolution default hyper-parameters
 DE_HYPERPAR: dict = {
     'NP'             : 16,

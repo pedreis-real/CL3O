@@ -23,6 +23,9 @@ from cl3o.paths import AIRFOILS_DIR as _DFLT_AFL_DIR, WINGS_DIR as _DFLT_WNG_DIR
 
 # ================ Module imports ================
 
+# Const
+from cl3o import Constants
+
 # Utilities
 from cl3o.utils import io_utils as io
 from cl3o.utils import math_utils as mthu
@@ -120,16 +123,18 @@ class WingData:
 @dataclass
 class LerpWingData:
     '''
-    Stores interpolated wing outline coordinates for the LEFT wing only.
+    Stores interpolated wing outline coordinates for the analyzed wing only
+    (side selected by Constants.WING_SIDE).
 
-    All spanwise arrays are ordered root -> tip with Y decreasing from
-    ~0 down to ~-b/2 (left-wing convention).
+    All spanwise arrays are ordered root -> tip. For the right wing Y
+    increases from ~0 to +b/2; for the left wing Y decreases from ~0 to
+    -b/2.
 
     Property    Size            Description                             Unit
     --------    ------------    ------------------------------------    --------
-    n_sta       (1,)            Number of left-wing spanwise stations   -
+    n_sta       (1,)            Number of spanwise stations             -
     Y_cp        (n_cpts,)       Spanwise control points location        mm
-    Y_sta       (n_sta,)        Left-wing stations (Y<=0, root->tip)    mm
+    Y_sta       (n_sta,)        Stations (signed by side, root->tip)    mm
     LE          (n_sta,3)       Leading edge coordinates                mm
     TE          (n_sta,3)       Trailing edge coordinates               mm
     chord       (n_sta,)        Chord length of each station            mm
@@ -183,8 +188,9 @@ class WingHelper:
 
     @staticmethod
     def lerp_from_data(
-        wng_data : WingData,
-        Y_sta    : np.ndarray,
+        wng_data  : WingData,
+        Y_sta     : np.ndarray,
+        wing_side : str = Constants.WING_SIDE,
     ) -> LerpWingData:
         '''
         Build a LerpWingData by interpolating a WingData outline at the
@@ -192,26 +198,32 @@ class WingHelper:
         than a live Wing instance so it can be called from anywhere
         that has access to the persisted dataclass.
 
-        The output is always restricted to the LEFT wing (Y <= 0) and
-        stacked root -> tip (Y decreasing from ~0 down to ~-b/2);
-        full-span or unordered inputs are folded onto that convention
-        internally so LE, TE, chord and twist are consistently aligned.
+        The output is restricted to the analyzed wing (Constants.WING_SIDE)
+        and stacked root -> tip; full-span or unordered inputs are folded
+        onto that convention internally so LE, TE, chord and twist are
+        consistently aligned. The right wing keeps Y > 0 (root ~0 -> +b/2);
+        the left wing keeps Y < 0 (root ~0 -> -b/2).
 
         Args:
-            wng_data: WingData loaded from JSON or freshly built.
-            Y_sta   : Spanwise station positions [mm]; full-span or
-                      left-wing only, any ordering accepted.
+            wng_data : WingData loaded from JSON or freshly built.
+            Y_sta    : Spanwise station positions [mm]; full-span or
+                       single-wing only, any ordering accepted.
+            wing_side: Analyzed side, "right" (Y > 0) or "left" (Y < 0).
 
         Returns:
             LerpWingData with LE/TE 3-D coordinates, chord and twist at
-            each left-wing station, ordered root -> tip.
+            each station of the analyzed wing, ordered root -> tip.
         '''
         Y_in = np.asarray(Y_sta, dtype=float)
         Y_cp = np.asarray(wng_data.pos, dtype=float)
 
-        # Fold to left-wing, root -> tip (|Y| ascending, Y decreasing).
-        Y_abs = np.sort(np.abs(Y_in[Y_in <= 0.0]))
-        Y_sta = -Y_abs
+        # Fold to the analyzed wing, root -> tip (|Y| ascending).
+        if wing_side == "right":
+            Y_abs = np.sort(np.abs(Y_in[Y_in >= 0.0]))
+            Y_sta = Y_abs
+        else:
+            Y_abs = np.sort(np.abs(Y_in[Y_in <= 0.0]))
+            Y_sta = -Y_abs
 
         n_sta = int(Y_sta.shape[0])
 
@@ -496,24 +508,26 @@ class Wing:
 
     def lerp_wing_geometry(
         self,
-        Y_sta: np.ndarray,
+        Y_sta     : np.ndarray,
+        wing_side : str = Constants.WING_SIDE,
     ) -> LerpWingData:
         '''
         Interpolate wing outline at each station along the span.
 
-        The returned dataclass is restricted to the LEFT wing (Y <= 0)
-        and stacked root -> tip; full-span or unordered Y_sta inputs
-        are folded onto that convention internally.
+        The returned dataclass is restricted to the analyzed wing
+        (Constants.WING_SIDE) and stacked root -> tip; full-span or
+        unordered Y_sta inputs are folded onto that convention internally.
 
         Args:
-            Y_sta: Spanwise station positions [mm]; full-span or left-
-                   -wing only, any ordering accepted.
+            Y_sta    : Spanwise station positions [mm]; full-span or
+                       single-wing only, any ordering accepted.
+            wing_side: Analyzed side, "right" (Y > 0) or "left" (Y < 0).
 
         Returns:
             LerpWingData with LE/TE 3-D coordinates, chord and twist
-            at each left-wing station, ordered root -> tip.
+            at each station of the analyzed wing, ordered root -> tip.
         '''
-        return WingHelper.lerp_from_data(self.wng_data, Y_sta)
+        return WingHelper.lerp_from_data(self.wng_data, Y_sta, wing_side)
 
 
 

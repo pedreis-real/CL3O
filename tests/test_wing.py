@@ -4,10 +4,10 @@ CL3O - Composite Lifting Surface Structural Sizing & Optimization.
 Wing Module Tests.
 
 Smoke tests for the WingData / Wing public surface, focused on the
-lerp_wing_geometry interpolation path. The current implementation folds
-any Y_sta input onto the left wing (Y <= 0) and stacks root -> tip, so
-the assertions here target convention-independent invariants (shapes,
-constant chord recovery, twist span, positive chord).
+lerp_wing_geometry interpolation path. The implementation folds any Y_sta
+input onto the analyzed wing (Constants.WING_SIDE, default "right" -> Y >= 0)
+and stacks root -> tip, so the assertions here target convention-independent
+invariants (shapes, constant chord recovery, twist span, positive chord).
 
 @ CL3O Authors - MIT License
 ================================================================================
@@ -69,7 +69,7 @@ class _WingStub:
 def test_lerp_returns_well_shaped_container() -> None:
     '''lerp_wing_geometry returns a LerpWingData with consistent shapes.'''
     wng = _WingStub(_make_wing_data())
-    Y = np.array([0.0, -5000.0])
+    Y = np.array([0.0, 5000.0])
 
     data = Wing.lerp_wing_geometry(wng, Y)
 
@@ -84,7 +84,7 @@ def test_lerp_returns_well_shaped_container() -> None:
 def test_lerp_constant_chord_recovered() -> None:
     '''A constant-chord wing must interpolate to a constant chord.'''
     wng = _WingStub(_make_wing_data())
-    Y = np.linspace(-5000.0, 0.0, 11)
+    Y = np.linspace(0.0, 5000.0, 11)
 
     data = Wing.lerp_wing_geometry(wng, Y)
 
@@ -96,7 +96,7 @@ def test_lerp_constant_chord_recovered() -> None:
 def test_lerp_twist_span_preserved() -> None:
     '''Interpolated twist spans the full root -> tip washout (in rad).'''
     wng = _WingStub(_make_wing_data())
-    Y = np.linspace(-5000.0, 0.0, 11)
+    Y = np.linspace(0.0, 5000.0, 11)
 
     data = Wing.lerp_wing_geometry(wng, Y)
 
@@ -107,7 +107,7 @@ def test_lerp_twist_span_preserved() -> None:
 def test_lerp_midspan_between_endpoints() -> None:
     '''A single midspan station lands strictly between the cpt outlines.'''
     wng = _WingStub(_make_wing_data())
-    data = Wing.lerp_wing_geometry(wng, np.array([-2500.0]))
+    data = Wing.lerp_wing_geometry(wng, np.array([2500.0]))
 
     assert data.n_sta == 1
     assert 0.0 <= data.LE[0, 0] <= 500.0

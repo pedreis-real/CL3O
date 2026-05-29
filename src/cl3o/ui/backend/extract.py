@@ -328,11 +328,11 @@ def stress(rt, lc: int = 0, end: str = "avg") -> dict:
 
 
 # ------------------------------------------------------------------
-# Internal forces - end-A resultants along the left wing
+# Internal forces - end-A resultants along the analyzed wing
 # ------------------------------------------------------------------
 
 def forces(rt, lc: int = 0) -> dict:
-    '''Per-element end-A internal forces along the left wing (root -> tip).
+    '''Per-element end-A internal forces along the analyzed wing (root -> tip).
 
     Returns local (Q_sc) and global (Q_gl) resultants per component as
     beam-diagram series against spanwise distance |Y| from the root.
@@ -353,7 +353,9 @@ def forces(rt, lc: int = 0) -> dict:
     coord = np.asarray(rt.mesh.coord, float)
     conn  = np.asarray(rt.mesh.conn,  int)[:, :2]
     mid_y = 0.5 * (coord[conn[:, 0], 1] + coord[conn[:, 1], 1])
-    left  = [e for e in range(conn.shape[0]) if mid_y[e] <= 1e-6]
+    # A snapshot holds only the analyzed half-span, so order all elements by
+    # |Y| (root -> tip); side-agnostic for the right (Y>0) or left (Y<0) wing.
+    left  = list(range(conn.shape[0]))
     left.sort(key=lambda e: abs(mid_y[e]))
 
     def s(Q, row):

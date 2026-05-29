@@ -3,7 +3,7 @@
 CL3O - Composite Lifting Surface Structural Sizing & Optimization.
 Wing-Surface Builder Module.
 
-Reconstructs the 3-D LEFT-wing visualization scene from an archived
+Reconstructs the 3-D analyzed-wing visualization scene from an archived
 RuntimeData snapshot, mirroring the geometry recipe in
 src/validation/validate_fea.py:
 
@@ -35,7 +35,6 @@ from . import paths                                # project path constants
 from cl3o.geometry.wing import WingHelper
 
 # ================ Module constants ================
-_Y_LEFT_TOL = 1.0e-6          # stations with C[1] <= tol belong to the left wing
 _N_CHORD    = 81              # airfoil-loop points per rib (kept light for WebGL)
 
 
@@ -75,12 +74,17 @@ def _skin_rib(gd) -> np.ndarray:
     return loop
 
 
-def _left_stations(rt) -> list[int]:
-    '''Section indices of the left wing, ordered root -> tip (|Y| ascending).'''
+def _span_stations(rt) -> list[int]:
+    '''Section indices of the analyzed wing, ordered root -> tip (|Y| ascending).
+
+    A snapshot holds only the analyzed half-span (Constants.WING_SIDE), so all
+    sections belong to it regardless of sign; ordering by |Y| works for either
+    the right wing (Y > 0) or the left wing (Y < 0).
+    '''
     sec = rt.sections.sec_data
-    left = [i for i, g in enumerate(sec) if float(g.C[1]) <= _Y_LEFT_TOL]
-    left.sort(key=lambda i: abs(float(sec[i].C[1])))
-    return left
+    idx = list(range(len(sec)))
+    idx.sort(key=lambda i: abs(float(sec[i].C[1])))
+    return idx
 
 
 def _grid_faces(n_c: int, n_s: int) -> tuple[list, list, list]:
@@ -142,7 +146,7 @@ def build_scene(
     deform: bool = False,
 ) -> dict:
     '''
-    Build the left-wing 3-D scene for one snapshot.
+    Build the analyzed-wing 3-D scene for one snapshot.
 
     Args:
         rt     : RuntimeData snapshot.
@@ -158,17 +162,17 @@ def build_scene(
         `centroid_line` / `shear_line` polylines, plus station metadata.
     '''
     sec = rt.sections.sec_data
-    left = _left_stations(rt)
+    left = _span_stations(rt)
     n_s = len(left)
     y_left = np.array([float(sec[i].C[1]) for i in left])
 
-    # Per-station LE / chord / twist via the production left-wing lerp.
+    # Per-station LE / chord / twist via the production single-wing lerp.
     lerp = WingHelper.lerp_from_data(wing, y_left)
     ly = np.asarray(lerp.Y_sta, dtype=float)
     LE = np.asarray(lerp.LE, dtype=float)
     chord = np.asarray(lerp.chord, dtype=float)
     twist = np.asarray(lerp.twist, dtype=float)
-    # Map each left station Y -> lerp row (nearest) for displacement reference.
+    # Map each station Y -> lerp row (nearest) for displacement reference.
     lrow = [int(np.argmin(np.abs(ly - y))) for y in y_left]
 
     # Build per-station outer skin ribs from T1 pts (seg1..seg5 in global XZ).
@@ -256,7 +260,7 @@ def build_scene(
 
 def build_stress_surface(rt, wing, lc: int = 0, end: str = "avg") -> dict:
     '''
-    Build the left-wing stress surface for one snapshot.
+    Build the analyzed-wing stress surface for one snapshot.
 
     Each T2 panel stores a full curved polyline (pts) following the actual
     airfoil skin geometry. This function lofts that polyline between adjacent
@@ -294,9 +298,9 @@ def build_stress_surface(rt, wing, lc: int = 0, end: str = "avg") -> dict:
     tau     = _pick_stress(tauA_arr, tauB_arr)
     sig_arr = _pick_stress(sigA_arr, sigB_arr)
 
-    # Left-wing elements, root -> tip.
+    # Analyzed-wing elements, root -> tip (|Y| ascending; side-agnostic).
     mid_y = 0.5 * (coord[conn[:, 0], 1] + coord[conn[:, 1], 1])
-    left_e = [e for e in range(conn.shape[0]) if mid_y[e] <= _Y_LEFT_TOL]
+    left_e = list(range(conn.shape[0]))
     left_e.sort(key=lambda e: abs(mid_y[e]))
 
     # -------- T2 panel surfaces coloured by shear stress --------

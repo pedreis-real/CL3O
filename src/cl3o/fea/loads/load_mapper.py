@@ -33,6 +33,9 @@ from cl3o.paths import (
 
 # ================ Module imports ================
 
+# Const
+from cl3o import Constants
+
 # Utilities
 from cl3o.utils import io_utils as io
 from cl3o.utils.oppoints import OppData
@@ -81,19 +84,20 @@ class ExLoadsData:
     drag            (nc,n)      Distributed drag force, full span        N
     moment          (nc,n)      Distributed aero moment, full span       N*mm
 
-    X, Y, Z *_hf    (n,)        CA coordinates, left wing root to tip    mm
-    lift_hf         (nc,n)      Distributed lift force, left wing        N
-    drag_hf         (nc,n)      Distributed drag force, left wing        N
-    moment_hf       (nc,n)      Distributed aero moment, left wing       N*mm
+    X, Y, Z *_hf    (n,)        CA coordinates, analyzed wing root->tip  mm
+    lift_hf         (nc,n)      Distributed lift force, analyzed wing    N
+    drag_hf         (nc,n)      Distributed drag force, analyzed wing    N
+    moment_hf       (nc,n)      Distributed aero moment, analyzed wing   N*mm
 
     Obs.:   - 'nc' stands for 'num_cond'.
             - Forces and moment are nodal values (one per node).
             - Conditions list has one-to-one relation with each column
               of forces and moments.
             - ALL Raw Data must have same size.
-            - '_hf' arrays slice the left half (Y < 0), flipped root to tip
-              (Y decreasing from ~0 to -b/2), matching LerpWingData.Y_sta
-              left-wing convention.
+            - '_hf' arrays slice the analyzed half-span (Constants.WING_SIDE)
+              ordered root to tip, matching LerpWingData.Y_sta. For the right
+              wing Y increases ~0 -> +b/2; for the left wing Y decreases
+              ~0 -> -b/2.
     '''
     n        : int
     num_cond : int
@@ -234,9 +238,11 @@ class LoadMapper:
         db_filepath: str | Path,
         conditions: Optional[list[str]] = None,
         xflr5_files: Optional[list[str]] = None,
+        wing_side: str = Constants.WING_SIDE,
         enable_logging: bool = True,    # always last entry
     ) -> None:
         self.logger = io.setup_logger(self, enable_logging)
+        self.wing_side = wing_side
 
         self.db_filepath = Path(db_filepath)
         self.inl_filepath = self.db_filepath.with_name(
@@ -297,13 +303,23 @@ class LoadMapper:
         self.Mfz    = np.column_stack(all_Mfz).T
         self.Mty    = np.column_stack(all_Mty).T
 
-        # Half-span slices - left wing (Y < 0), root to tip (decreasing Y)
-        self.X_hf  = np.flip(self.X[:self.n])
-        self.Y_hf  = np.flip(self.Y[:self.n])
-        self.Z_hf  = np.flip(self.Z[:self.n])
-        self.lift_hf   = np.flip(self.lift[:, :self.n],   axis=1)
-        self.drag_hf   = np.flip(self.drag[:, :self.n],   axis=1)
-        self.moment_hf = np.flip(self.moment[:, :self.n], axis=1)
+        # Half-span slices, ordered root -> tip for the analyzed wing.
+        # Y_full is ascending (left-tip -> right-tip), self.n = len // 2:
+        #   right wing -> second half [n:], already root(0) -> tip(+b/2)
+        #   left wing  -> first half  [:n], flipped to root(0) -> tip(-b/2)
+        if self.wing_side == "right":
+            half = slice(self.n, None)
+            order = slice(None, None, 1)      # keep ascending Y (root -> tip)
+        else:
+            half = slice(0, self.n)
+            order = slice(None, None, -1)     # flip to root -> tip (descending Y)
+
+        self.X_hf  = self.X[half][order]
+        self.Y_hf  = self.Y[half][order]
+        self.Z_hf  = self.Z[half][order]
+        self.lift_hf   = self.lift[:, half][:, order]
+        self.drag_hf   = self.drag[:, half][:, order]
+        self.moment_hf = self.moment[:, half][:, order]
 
         self.logger.info("Packing ExLoadsData and writing JSON database")
         self.exl_data = self._pack_exloads()
