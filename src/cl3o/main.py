@@ -105,7 +105,7 @@ from cl3o.paths import (
 # ================ Module imports ================
 
 # Constants
-from cl3o.Constants import DE_HYPERPAR
+from cl3o.Constants import DE_HYPERPAR, WING_SIDE
 
 # Utilities
 from cl3o.utils import io_utils as io
@@ -546,14 +546,18 @@ class RunCLEO:
                         )
             db_loaded["ply_db"] = ply_db
 
+        # Fold the full-span stations onto the analyzed wing at runtime so the
+        # mesh follows Constants.WING_SIDE without regenerating the loads DB.
         db_loaded["lerp_wing_db"] = WingHelper.lerp_from_data(
-            wng_data = db_loaded["wing_db"],
-            Y_sta    = np.asarray(db_loaded["exloads_db"].Y_hf, dtype=float),
+            wng_data  = db_loaded["wing_db"],
+            Y_sta     = np.asarray(db_loaded["exloads_db"].Y, dtype=float),
+            wing_side = WING_SIDE,
         )
 
         db_loaded["fem_setup"] = FemSetup(
             exloads_db = db_loaded["exloads_db"],
-            lerp_wing_db = db_loaded["lerp_wing_db"]
+            lerp_wing_db = db_loaded["lerp_wing_db"],
+            wing_side = WING_SIDE,
         ).fem_setup
 
         return StaticData(**db_loaded)
@@ -1119,8 +1123,8 @@ def _resolve_db_specs(
 if __name__ == "__main__":
     aircraft_name = "DA62"
     # opt_name = "Test-Single"
-    # opt_name = "Test-LocalFrame-6"
-    opt_name      = "3rdOpt-DEHYP-default"
+    opt_name = "Test-LocalFrame-LeftWing-1"
+    # opt_name      = "3rdOpt-DEHYP-default"
 
     # ---------------- Set database specifications ----------------
     # Laminates are discovered by glob over MAT_*_LaminateData.json; the
@@ -1176,7 +1180,7 @@ if __name__ == "__main__":
         opt_name       = opt_name,
         db_specs       = db_specs,
         pipeline_logging = False,
-        de_hyperpar    = DE_HYPERPAR #{**DE_HYPERPAR, 'NP': 16, 'k_max': 20},
+        de_hyperpar    = {**DE_HYPERPAR, 'NP': 16, 'k_max': 20},
     )
     runner.run(live_plot = False)        # CAUTION: the live plot raises RAM demand
 

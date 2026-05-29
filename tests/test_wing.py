@@ -71,7 +71,7 @@ def test_lerp_returns_well_shaped_container() -> None:
     wng = _WingStub(_make_wing_data())
     Y = np.array([0.0, 5000.0])
 
-    data = Wing.lerp_wing_geometry(wng, Y)
+    data = Wing.lerp_wing_geometry(wng, Y, wing_side="right")
 
     assert isinstance(data, LerpWingData)
     assert data.n_sta == 2
@@ -86,7 +86,7 @@ def test_lerp_constant_chord_recovered() -> None:
     wng = _WingStub(_make_wing_data())
     Y = np.linspace(0.0, 5000.0, 11)
 
-    data = Wing.lerp_wing_geometry(wng, Y)
+    data = Wing.lerp_wing_geometry(wng, Y, wing_side="right")
 
     np.testing.assert_allclose(data.chord, 1000.0)
     # Trailing edge sits aft of the leading edge at every station.
@@ -98,7 +98,7 @@ def test_lerp_twist_span_preserved() -> None:
     wng = _WingStub(_make_wing_data())
     Y = np.linspace(0.0, 5000.0, 11)
 
-    data = Wing.lerp_wing_geometry(wng, Y)
+    data = Wing.lerp_wing_geometry(wng, Y, wing_side="right")
 
     assert np.isclose(data.twist.max(), 0.0, atol=1e-6)
     assert np.isclose(data.twist.min(), np.radians(-2.0), atol=1e-4)
@@ -107,7 +107,7 @@ def test_lerp_twist_span_preserved() -> None:
 def test_lerp_midspan_between_endpoints() -> None:
     '''A single midspan station lands strictly between the cpt outlines.'''
     wng = _WingStub(_make_wing_data())
-    data = Wing.lerp_wing_geometry(wng, np.array([2500.0]))
+    data = Wing.lerp_wing_geometry(wng, np.array([2500.0]), wing_side="right")
 
     assert data.n_sta == 1
     assert 0.0 <= data.LE[0, 0] <= 500.0

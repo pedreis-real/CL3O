@@ -225,6 +225,56 @@ class LoadsHelper:
                 stacklevel=2,
             )
 
+    @staticmethod
+    def half_span_slice(
+        X         : np.ndarray,
+        Y         : np.ndarray,
+        Z         : np.ndarray,
+        lift      : np.ndarray,
+        drag      : np.ndarray,
+        moment    : np.ndarray,
+        wing_side : str = Constants.WING_SIDE,
+    ) -> tuple[np.ndarray, ...]:
+        '''
+        Slice full-span load arrays down to the analyzed half-span.
+
+        The full-span arrays cover both wings in ascending Y (left-tip ->
+        right-tip), with the split at len // 2. Returns the analyzed wing
+        (Constants.WING_SIDE) ordered root -> tip: the right wing keeps the
+        second half ascending (Y > 0, no flip); the left wing keeps the first
+        half flipped (Y < 0, root -> tip). Deriving the half at runtime means
+        switching WING_SIDE needs no database regeneration.
+
+        Args:
+            X, Y, Z   : Full-span CA coordinates (2n,) [mm].
+            lift,
+            drag,
+            moment    : Full-span distributed loads (nc, 2n).
+            wing_side : Analyzed side, "right" (Y > 0) or "left" (Y < 0).
+
+        Returns:
+            Tuple (X_hf, Y_hf, Z_hf, lift_hf, drag_hf, moment_hf), root -> tip.
+        '''
+        Y_full = np.asarray(Y, dtype=float)
+        n = Y_full.shape[0] // 2
+        if wing_side == "right":
+            half  = slice(n, None)
+            order = slice(None, None, 1)     # keep ascending Y (root -> tip)
+        else:
+            half  = slice(0, n)
+            order = slice(None, None, -1)    # flip to root -> tip (descending Y)
+
+        def _sl1(a: np.ndarray) -> np.ndarray:
+            return np.asarray(a, dtype=float)[half][order]
+
+        def _sl2(a: np.ndarray) -> np.ndarray:
+            return np.asarray(a, dtype=float)[:, half][:, order]
+
+        return (
+            _sl1(X), _sl1(Y), _sl1(Z),
+            _sl2(lift), _sl2(drag), _sl2(moment),
+        )
+
 
 # ================================================================================
 # Public API - External loads raw data processing
@@ -303,23 +353,18 @@ class LoadMapper:
         self.Mfz    = np.column_stack(all_Mfz).T
         self.Mty    = np.column_stack(all_Mty).T
 
-        # Half-span slices, ordered root -> tip for the analyzed wing.
-        # Y_full is ascending (left-tip -> right-tip), self.n = len // 2:
-        #   right wing -> second half [n:], already root(0) -> tip(+b/2)
-        #   left wing  -> first half  [:n], flipped to root(0) -> tip(-b/2)
-        if self.wing_side == "right":
-            half = slice(self.n, None)
-            order = slice(None, None, 1)      # keep ascending Y (root -> tip)
-        else:
-            half = slice(0, self.n)
-            order = slice(None, None, -1)     # flip to root -> tip (descending Y)
-
-        self.X_hf  = self.X[half][order]
-        self.Y_hf  = self.Y[half][order]
-        self.Z_hf  = self.Z[half][order]
-        self.lift_hf   = self.lift[:, half][:, order]
-        self.drag_hf   = self.drag[:, half][:, order]
-        self.moment_hf = self.moment[:, half][:, order]
+        # Half-span slices, ordered root -> tip for the analyzed wing. The
+        # persisted '_hf' arrays reflect this LoadMapper's wing_side; at runtime
+        # the consumers re-slice from the full-span arrays via the same helper,
+        # so switching Constants.WING_SIDE needs no database regeneration.
+        (
+            self.X_hf, self.Y_hf, self.Z_hf,
+            self.lift_hf, self.drag_hf, self.moment_hf,
+        ) = LoadsHelper.half_span_slice(
+            self.X, self.Y, self.Z,
+            self.lift, self.drag, self.moment,
+            wing_side=self.wing_side,
+        )
 
         self.logger.info("Packing ExLoadsData and writing JSON database")
         self.exl_data = self._pack_exloads()

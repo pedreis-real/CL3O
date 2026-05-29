@@ -26,6 +26,9 @@ import numpy as np
 
 # ================ Module imports ================
 
+# Const
+from cl3o import Constants
+
 # Utilities
 from cl3o.utils import io_utils as io
 
@@ -33,7 +36,7 @@ from cl3o.utils import io_utils as io
 from cl3o.geometry.wing import LerpWingData
 
 # Finite Element Analysis
-from cl3o.fea.loads.load_mapper import ExLoadsData
+from cl3o.fea.loads.load_mapper import ExLoadsData, LoadsHelper
 
 # ================================================================================
 # Data persistence - Global FEM setup container
@@ -86,6 +89,7 @@ class FemSetup:
         self,
         exloads_db : ExLoadsData,
         lerp_wing_db : LerpWingData,
+        wing_side : str = Constants.WING_SIDE,
         enable_logging : bool = True,
     ) -> None:
         self.logger = io.setup_logger(self, enable_logging)
@@ -93,6 +97,7 @@ class FemSetup:
 
         self.exloads_data = exloads_db
         self.wng_data = lerp_wing_db
+        self.wing_side = wing_side
 
         self._build_default_mesh()
         self._retrieve_loads()
@@ -129,6 +134,16 @@ class FemSetup:
         self.nc = self.exloads_data.num_cond
         self.f_nodal = np.zeros((self.n, 6, self.nc), dtype=float)
 
+        # Re-slice the half-span loads from the full-span arrays for the active
+        # wing side, so the nodal forces always match the analyzed mesh
+        # regardless of which side the persisted '_hf' arrays were built for.
+        _, _, _, lift_hf, drag_hf, moment_hf = LoadsHelper.half_span_slice(
+            self.exloads_data.X, self.exloads_data.Y, self.exloads_data.Z,
+            self.exloads_data.lift, self.exloads_data.drag,
+            self.exloads_data.moment,
+            wing_side=self.wing_side,
+        )
+
         def _as_n_nc(raw):
             a = np.asarray(raw, dtype=float)
             if a.ndim == 1:
@@ -137,9 +152,9 @@ class FemSetup:
                 a = a.T
             return a
 
-        self.f_nodal[:, 0, :] = _as_n_nc(self.exloads_data.drag_hf)
-        self.f_nodal[:, 2, :] = _as_n_nc(self.exloads_data.lift_hf)
-        self.f_nodal[:, 4, :] = _as_n_nc(self.exloads_data.moment_hf)
+        self.f_nodal[:, 0, :] = _as_n_nc(drag_hf)
+        self.f_nodal[:, 2, :] = _as_n_nc(lift_hf)
+        self.f_nodal[:, 4, :] = _as_n_nc(moment_hf)
     
     def _pack_fem_setup(self) -> FemPreprocessData:
         '''Pack the FEM setup tensors.'''
