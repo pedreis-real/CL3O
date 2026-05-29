@@ -77,6 +77,16 @@ def planform(run_id: str):
     return _json(extract.planform(wing))
 
 
+@app.get("/api/runs/{run_id}/search")
+def search_space(run_id: str):
+    try:
+        manifest = repo.get_manifest(run_id)
+        snaps    = repo.distinct_snapshots(run_id)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    return _json(extract.search_space(snaps, manifest))
+
+
 # ------------------------------------------------------------------
 # Per-generation views
 # ------------------------------------------------------------------
@@ -139,7 +149,9 @@ def geometry(
     afl = repo.get_airfoil(run_id)
     if wing is None or afl is None:
         raise HTTPException(status_code=404, detail="wing/airfoil data not found")
-    return _json(surface.build_scene(rt, wing, afl, lc=lc, scale=scale, deform=deformed))
+    scene = surface.build_scene(rt, wing, afl, lc=lc, scale=scale, deform=deformed)
+    scene["laminate_catalog"] = repo.get_laminate_catalog(run_id)
+    return _json(scene)
 
 
 # ------------------------------------------------------------------

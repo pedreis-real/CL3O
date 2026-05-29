@@ -12,6 +12,6 @@ no sys.path manipulation is needed.
 ================================================================================
 '''
 
-from cl3o.paths import ROOT_DIR, OUTPUTS_DIR, WINGS_DIR
+from cl3o.paths import ROOT_DIR, OUTPUTS_DIR, WINGS_DIR, MATERIALS_DIR
 
-__all__ = ["ROOT_DIR", "OUTPUTS_DIR", "WINGS_DIR"]
+__all__ = ["ROOT_DIR", "OUTPUTS_DIR", "WINGS_DIR", "MATERIALS_DIR"]

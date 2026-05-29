@@ -6,6 +6,7 @@ const VIEWS: { key: ViewKind; label: string }[] = [
   { key: "section", label: "Cross-section" },
   { key: "mesh", label: "Mesh" },
   { key: "stress", label: "Stress" },
+  { key: "misc", label: "Misc" },
 ];
 
 export function ToggleBar() {

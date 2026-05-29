@@ -15,6 +15,8 @@ import math
 
 import numpy as np
 
+_ROUND = 2
+
 
 def to_jsonable(obj):
     '''Recursively convert `obj` into JSON-safe native python.
@@ -28,12 +30,12 @@ def to_jsonable(obj):
     if obj is None or isinstance(obj, (bool, int, str)):
         return obj
     if isinstance(obj, float):
-        return obj if math.isfinite(obj) else None
+        return round(obj, _ROUND) if math.isfinite(obj) else None
     if isinstance(obj, np.integer):
         return int(obj)
     if isinstance(obj, np.floating):
         f = float(obj)
-        return f if math.isfinite(f) else None
+        return round(f, _ROUND) if math.isfinite(f) else None
     if isinstance(obj, np.ndarray):
         return to_jsonable(obj.tolist())
     if isinstance(obj, dict):

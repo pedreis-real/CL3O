@@ -35,6 +35,102 @@ def _g(obj, name, default=None):
 
 
 # ------------------------------------------------------------------
+# Misc - search space trajectory
+# ------------------------------------------------------------------
+
+def search_space(distinct_snapshots: list, manifest: dict) -> dict:
+    '''
+    Build a 2-D trajectory of distinct individuals through the design
+    space, plus per-distinct statistical metrics.
+
+    Approach: stack each distinct individual's flat design vector (read
+    via cl3o.optimization.fobjective.BuildEvaluator.encode_optvars from
+    its RuntimeData.optvars), centre, and project on the first two
+    principal components via SVD. The resulting (x, y) coordinates trace
+    the path the DE walker took through the search space, and the
+    explained-variance ratios advertise how meaningful the projection is.
+
+    Args:
+        distinct_snapshots: list of (record_dict, RuntimeData) for each
+            distinct individual, in manifest order.
+        manifest: parsed manifest (best_f_hist, mean_f_hist, std_f_hist).
+
+    Returns dict ready for serialize.to_jsonable.
+    '''
+    from cl3o.optimization.fobjective import BuildEvaluator
+
+    Xs: list[np.ndarray] = []
+    f:  list[float] = []
+    gen: list[int]  = []
+    feas: list[bool] = []
+    for rec, rt in distinct_snapshots:
+        ov = getattr(rt, "optvars", None)
+        if ov is None:
+            continue
+        try:
+            Xs.append(BuildEvaluator.encode_optvars(ov))
+        except Exception:
+            continue
+        f.append(_f(rec.get("best_f")) or float("nan"))
+        gen.append(int(rec.get("first_seen_gen", rec.get("k", 0))))
+        feas.append(bool(rec.get("is_feasible", False)))
+
+    if len(Xs) < 2:
+        return {
+            "x": [], "y": [], "f": f, "gen": gen, "feasible": feas,
+            "explained_variance": [0.0, 0.0], "n_distinct": len(Xs),
+            "metrics": _global_metrics(manifest),
+        }
+
+    X = np.vstack(Xs).astype(float)
+    mu = X.mean(axis=0)
+    Xc = X - mu
+    # Compact SVD for PCA. U·S already gives the 2-D coordinates.
+    U, S, _Vt = np.linalg.svd(Xc, full_matrices=False)
+    coords = U[:, :2] * S[:2]
+    total = float((S ** 2).sum()) or 1.0
+    ev = [float((S[i] ** 2) / total) if i < S.size else 0.0 for i in range(2)]
+
+    # Cumulative L2 path length along the trajectory: how far DE travelled.
+    dpath = np.linalg.norm(np.diff(X, axis=0), axis=1)
+    cum_path = np.concatenate(([0.0], np.cumsum(dpath))).tolist()
+
+    return {
+        "x": coords[:, 0].tolist(),
+        "y": coords[:, 1].tolist(),
+        "f": f,
+        "gen": gen,
+        "feasible": feas,
+        "cum_path": cum_path,
+        "explained_variance": ev,
+        "n_distinct": len(Xs),
+        "metrics": _global_metrics(manifest),
+    }
+
+
+def _global_metrics(manifest: dict) -> dict:
+    '''Manifest-level statistics: convergence rate, mean improvement, etc.'''
+    best = np.asarray(manifest.get("best_f_hist") or [], dtype=float)
+    mean = np.asarray(manifest.get("mean_f_hist") or [], dtype=float)
+    std  = np.asarray(manifest.get("std_f_hist")  or [], dtype=float)
+    out = {
+        "n_gens"    : int(manifest.get("n_gens", 0)),
+        "best_f"    : _f(best[-1] if best.size else None),
+        "best_gen"  : int(np.argmin(best)) if best.size else 0,
+        "mean_f"    : _f(mean[-1] if mean.size else None),
+        "std_f"     : _f(std[-1]  if std.size  else None),
+    }
+    if best.size > 1:
+        finite = best[np.isfinite(best)]
+        if finite.size > 1:
+            out["total_improvement"] = _f(float(finite[0] - finite.min()))
+            out["mean_improvement"]  = _f(
+                float((finite[0] - finite.min()) / max(1, finite.size - 1))
+            )
+    return out
+
+
+# ------------------------------------------------------------------
 # Geometry - wing planform (from the wing database control points)
 # ------------------------------------------------------------------
 

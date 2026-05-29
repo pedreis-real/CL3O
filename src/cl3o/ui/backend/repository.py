@@ -18,12 +18,29 @@ above it works with plain dicts / numpy arrays.
 
 from . import paths
 
+import importlib
 import json
 import pickle
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
 from .serialize import to_jsonable
+
+# Backwards-compat for legacy pickles produced before the cl3o package
+# layout (`outputs/da62_optteste3/...` and friends). They reference the
+# top-level `optimization`, `geometry`, `fea`, etc. modules; alias them
+# to the current `cl3o.*` namespace so pickle.load can resolve them.
+_LEGACY_ROOTS = (
+    "optimization", "geometry", "fea", "materials", "utils",
+)
+for _root in _LEGACY_ROOTS:
+    _full = f"cl3o.{_root}"
+    if _root not in sys.modules:
+        try:
+            sys.modules[_root] = importlib.import_module(_full)
+        except Exception:
+            pass
 
 # Sub-directory names a run may use for its per-generation pickles.
 _PKL_SUBDIRS = ("opt_files", "generations", "")
@@ -36,6 +53,62 @@ _run_full_cache: dict[str, dict[int, object]] = {}
 _wing_cache: dict[str, object] = {}       # path -> WingData
 _wing_raw_cache: dict[str, dict] = {}     # path -> raw dict
 _airfoil_cache: dict[str, object] = {}    # path -> AirfoilData
+# Laminate catalog cache: shared across runs (process-wide).
+_laminate_catalog_cache: dict[str, dict] | None = None
+
+
+def _infer_family(name: str, plies: list[str]) -> str:
+    '''
+    Classify a laminate as CFRP / GFRP / CFRP_sand / GFRP_sand / OTHER.
+    Sandwich is detected by the presence of a core ply (honeycomb /
+    divinycell / foam) anywhere in the stack; the face family comes from
+    the first non-core ply.
+    '''
+    core_kw = ("honeycomb", "divinycell", "foam")
+    is_sand = any(any(kw in p.lower() for kw in core_kw) for p in plies)
+    face_kw = None
+    for p in plies:
+        pl = p.lower()
+        if any(kw in pl for kw in core_kw):
+            continue
+        if "cfrp" in pl:
+            face_kw = "CFRP"; break
+        if "gfrp" in pl:
+            face_kw = "GFRP"; break
+    if face_kw is None:
+        nl = name.lower()
+        if "cfrp" in nl: face_kw = "CFRP"
+        elif "gfrp" in nl: face_kw = "GFRP"
+        else: face_kw = "OTHER"
+    return f"{face_kw}_sand" if is_sand and face_kw in ("CFRP", "GFRP") else face_kw
+
+
+def _load_laminate_catalog() -> dict[str, dict]:
+    '''
+    Build the shared laminate catalog (process-wide cache).
+    Indexed by 1-based string keys ("1", "2", ...) to match the layup
+    indices stored on OptVars.lsX / lwX / lfX.
+    '''
+    global _laminate_catalog_cache
+    if _laminate_catalog_cache is not None:
+        return _laminate_catalog_cache
+    catalog: dict[str, dict] = {}
+    mats_dir = paths.MATERIALS_DIR
+    if mats_dir.is_dir():
+        files = sorted(mats_dir.glob("MAT_*_LaminateData.json"))
+        for k, fp in enumerate(files, start=1):
+            try:
+                raw = json.loads(fp.read_text(encoding="utf-8"))
+            except Exception:
+                continue
+            name = str(raw.get("name", fp.stem))
+            plies = list(raw.get("plies", []) or [])
+            catalog[str(k)] = {
+                "name"  : name,
+                "family": _infer_family(name, plies),
+            }
+    _laminate_catalog_cache = catalog
+    return catalog
 
 
 @dataclass
@@ -89,13 +162,38 @@ class RunRepository:
     # ------------------------------------------------------------------
 
     def get_manifest(self, run_id: str) -> dict:
-        '''Parsed + sanitized manifest (Infinity/NaN -> null).'''
+        '''Parsed + sanitized manifest (Infinity/NaN -> null).
+
+        Legacy archives (schema_version "1.0") lack `distinct_individuals`
+        and per-snapshot `is_duplicate` / `first_seen_gen` fields; this
+        method back-fills them by treating every snapshot as distinct so
+        the frontend keeps working uniformly.
+        '''
         mf = self._run_dir(run_id) / "manifest.json"
         if not mf.is_file():
             raise FileNotFoundError(f"manifest.json not found for run '{run_id}'")
         manifest = to_jsonable(self._read_json(mf))
         manifest["best_gen"] = self.best_generation(run_id)
+        self._backfill_distinct(manifest)
         return manifest
+
+    @staticmethod
+    def _backfill_distinct(manifest: dict) -> None:
+        '''Mutates `manifest` to ensure distinct_individuals + per-snapshot
+        is_duplicate/first_seen_gen exist (no-op when already present).'''
+        snaps = manifest.get("snapshots") or []
+        if not snaps:
+            manifest.setdefault("distinct_individuals", [])
+            return
+        already_tagged = any("is_duplicate" in s for s in snaps)
+        if not already_tagged:
+            for s in snaps:
+                s["is_duplicate"]   = False
+                s["first_seen_gen"] = int(s.get("k", 0))
+        if "distinct_individuals" not in manifest:
+            manifest["distinct_individuals"] = [
+                s for s in snaps if not s.get("is_duplicate", False)
+            ]
 
     def best_generation(self, run_id: str) -> int:
         '''Index of the best generation: best feasible if any, else argmin best_f.'''
@@ -130,6 +228,24 @@ class RunRepository:
                 f"[CL3O] Snapshot k={k} not found in run '{run_id}'."
             )
         return cache[ki]
+
+    def distinct_snapshots(self, run_id: str) -> list[tuple[dict, object]]:
+        '''Return [(snapshot_record, RuntimeData)] for each distinct individual.
+
+        The record is the manifest entry under `distinct_individuals` (or a
+        back-filled equivalent). RuntimeData comes from get_snapshot which
+        is cached, so repeat calls in a run session stay cheap.
+        '''
+        manifest = self.get_manifest(run_id)
+        records = manifest.get("distinct_individuals") or []
+        out: list[tuple[dict, object]] = []
+        for rec in records:
+            try:
+                rt = self.get_snapshot(run_id, int(rec.get("k", 0)))
+            except Exception:
+                continue
+            out.append((rec, rt))
+        return out
 
     def n_gens(self, run_id: str) -> int:
         m = self._read_json(self._run_dir(run_id) / "manifest.json")
@@ -178,6 +294,10 @@ class RunRepository:
         if key not in _wing_cache:
             _wing_cache[key] = io.read_json(fp, WingData)
         return _wing_cache[key]
+
+    def get_laminate_catalog(self, run_id: str | None = None) -> dict[str, dict]:
+        '''Return the shared laminate catalog {idx: {name, family}}.'''
+        return _load_laminate_catalog()
 
     def get_airfoil(self, run_id: str):
         '''AirfoilData for the run's wing (cached by file path).'''

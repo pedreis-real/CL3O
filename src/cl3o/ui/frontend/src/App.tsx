@@ -8,6 +8,7 @@ import { GeometryPlot } from "./plots/GeometryPlot";
 import { SectionPlot } from "./plots/SectionPlot";
 import { MeshPlot } from "./plots/MeshPlot";
 import { StressPlot } from "./plots/StressPlot";
+import { MiscPlot } from "./plots/MiscPlot";
 
 export default function App() {
   const { view, init } = useStore();
@@ -28,6 +29,7 @@ export default function App() {
         {view === "section" && <SectionPlot />}
         {view === "mesh" && <MeshPlot />}
         {view === "stress" && <StressPlot />}
+        {view === "misc" && <MiscPlot />}
       </main>
 
       <Sidebar />

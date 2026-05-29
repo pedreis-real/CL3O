@@ -15,10 +15,18 @@ export const baseLayout = {
   font: { color: "#c9d4e3", family: "Inter, system-ui, sans-serif", size: 12 },
   margin: { l: 48, r: 16, t: 16, b: 40 },
   showlegend: false,
+  // Vertical modebar pushed off the plot area so it does not overlap the
+  // colorbar/legend area on stress and mesh views.
+  modebar: { orientation: "v" as const, bgcolor: "rgba(0,0,0,0)" },
   transition: { duration: 0, easing: "linear" as const },
 };
 
-export const config = { displaylogo: false, responsive: true };
+export const config = {
+  displaylogo: false,
+  responsive: true,
+  // 2x raster so the snapshot button produces a publishable PNG.
+  toImageButtonOptions: { format: "png" as const, scale: 2 },
+};
 
 // Shared 3D scene config (data aspect ratio, dark axes).
 export const scene3d = {
@@ -42,6 +50,9 @@ export interface MeshOpts {
   colorbarY?: number;
   colorbarLen?: number;
   hovertemplate?: string;
+  // When false, the colorscale is applied but no colorbar is drawn — used
+  // by secondary surfaces that share the primary surface's scale.
+  showscale?: boolean;
 }
 
 // Build a mesh3d trace from a Mesh3D payload; pass `intensity` for a colormap.
@@ -63,15 +74,17 @@ export function meshTrace(m: Mesh3D, opts: MeshOpts): Data {
     t.intensitymode = opts.intensitymode ?? "vertex";
     t.colorscale = opts.colorscale ?? "Turbo";
     t.reversescale = opts.reversescale ?? false;
-    t.showscale = true;
+    t.showscale = opts.showscale ?? true;
     if (opts.cmin != null) t.cmin = opts.cmin;
     if (opts.cmax != null) t.cmax = opts.cmax;
-    t.colorbar = {
-      title: { text: opts.colorbarTitle ?? "" },
-      thickness: 12,
-      ...(opts.colorbarY != null && { y: opts.colorbarY }),
-      ...(opts.colorbarLen != null && { len: opts.colorbarLen }),
-    };
+    if (t.showscale) {
+      t.colorbar = {
+        title: { text: opts.colorbarTitle ?? "" },
+        thickness: 12,
+        ...(opts.colorbarY != null && { y: opts.colorbarY }),
+        ...(opts.colorbarLen != null && { len: opts.colorbarLen }),
+      };
+    }
     if (opts.hovertemplate) t.hovertemplate = opts.hovertemplate;
   } else {
     t.color = opts.color ?? "#4f8cff";

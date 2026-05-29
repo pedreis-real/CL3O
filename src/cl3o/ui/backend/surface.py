@@ -220,8 +220,11 @@ def build_scene(
     rear = _spar_strip(rt, left, "seg7", dmat, LE, chord, twist, lrow, scale, lc)
     cline = _line(rt, left, "C", dmat, LE, chord, twist, lrow, scale, lc)
     sline = _line(rt, left, "S_XYZ", dmat, LE, chord, twist, lrow, scale, lc)
+    flanges = _flange_strips(
+        rt, left, dmat, LE, chord, lrow, scale, lc, getattr(rt, "optvars", None),
+    )
 
-    return {
+    out = {
         "surface": surface,
         "front_spar": front,
         "rear_spar": rear,
@@ -231,6 +234,17 @@ def build_scene(
         "y_span": y_left,
         "deformed": dmat is not None,
     }
+
+    # Layups per panel/web/flange (per-cpt index arrays from OptVars).
+    ov = getattr(rt, "optvars", None)
+    if ov is not None:
+        out["layups"] = {
+            key: getattr(ov, key, None)
+            for key in ("ls1", "ls2", "lw1", "lw2",
+                        "lf1", "lf2", "lf3", "lf4")
+        }
+    out["flanges"] = flanges
+    return out
 
 
 # ========================================================================
@@ -496,6 +510,75 @@ def _spar_strip(rt, left, seg_label, dmat, LE, chord, twist, lrow, scale, lc) ->
     flat = strip.reshape(-1, 3, order="F")          # vertex idx = s*2 + r
     i, j, k = _grid_faces(2, n_s)
     return {"vertices": flat, "i": i, "j": j, "k": k}
+
+
+def _flange_strips(rt, left, dmat, LE, chord, lrow, scale, lc, optvars) -> list[dict]:
+    '''
+    Build one mesh3d-ready strip per structural flange (F1..F4).
+
+    Each flange is a thin ribbon centered on its anchor boom (per
+    Constants.FLANGE_BOOM_IDX), extending +/- bf/2 in the chord
+    direction with bf taken from the OptVars root width. Layup index
+    is the root value of lfK so the frontend can color-code by family.
+    '''
+    from cl3o.Constants import FLANGE_BOOM_IDX
+    sec = rt.sections.sec_data
+    n_s = len(left)
+    if optvars is None or n_s == 0:
+        return []
+
+
+    def _root(arr, default=0.0):
+        a = np.asarray(arr, float).ravel()
+        return float(a[0]) if a.size else float(default)
+
+    bf_roots = [
+        _root(getattr(optvars, "bf1_root", 0.0)),
+        _root(getattr(optvars, "bf2_root", 0.0)),
+        _root(getattr(optvars, "bf3_root", 0.0)),
+        _root(getattr(optvars, "bf4_root", 0.0)),
+    ]
+    lf_roots = [
+        int(round(_root(getattr(optvars, f"lf{k}", [0]))))
+        for k in range(1, 5)
+    ]
+    out: list[dict] = []
+    for fk, boom_idx in enumerate(FLANGE_BOOM_IDX):
+        strip = np.zeros((2, n_s, 3))
+        for s, node_i in enumerate(left):
+            gd = sec[node_i]
+            # Canonical boom position: boom_u/boom_w are stored relative to
+            # the section centroid (boom_Xc/boom_Zc). T2 panel endpoints are
+            # unreliable here because some panels collect TE/LE intermediate
+            # waypoints under the same boomA/boomB tag.
+            try:
+                xb = float(np.asarray(gd.boom_u, float)[boom_idx]
+                           + float(gd.boom_Xc))
+                zb = float(np.asarray(gd.boom_w, float)[boom_idx]
+                           + float(gd.boom_Zc))
+            except Exception:
+                continue
+            r = lrow[s]
+            cw = float(chord[r])
+            xle, zle, y = float(LE[r, 0]), float(LE[r, 2]), float(gd.C[1])
+            half = 0.5 * bf_roots[fk] * cw
+            # Symmetric extension: ±half along the chord around the boom.
+            x0, x1 = xb - half, xb + half
+            row = np.array([[x0, y, zb], [x1, y, zb]])
+            if dmat is not None:
+                row = _apply_disp(
+                    row, np.array([xle, y, zle]), dmat[:, node_i, lc], scale,
+                )
+            strip[:, s] = row
+        flat = strip.reshape(-1, 3, order="F")
+        i, j, k_ = _grid_faces(2, n_s)
+        out.append({
+            "vertices" : flat,
+            "i"        : i, "j": j, "k": k_,
+            "layup_idx": lf_roots[fk],
+            "label"    : f"F{fk + 1}",
+        })
+    return out
 
 
 def _line(rt, left, attr, dmat, LE, chord, twist, lrow, scale, lc) -> np.ndarray:

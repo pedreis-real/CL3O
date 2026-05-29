@@ -3,18 +3,45 @@ import type { Data } from "plotly.js";
 import { useStore } from "../state/store";
 import { api } from "../api/client";
 import type { Forces, Scene } from "../types";
-import Plot, { baseLayout, config, lineTrace, meshTrace, scene3d } from "./Plot";
+import Plot, { baseLayout, config, meshTrace, scene3d } from "./Plot";
+import type { Mesh3D } from "../types";
+import { FEMAP_CMAP } from "./colors";
 
 export const DISP_LABEL: Record<string, string> = {
-  u: "T1 · u [mm]", v: "T2 · v [mm]", w: "T3 · w [mm]", t: "|translation| [mm]",
-  rx: "R1 · θx [rad]", ry: "R2 · θy [rad]", rz: "R3 · θz [rad]", r: "|rotation| [rad]",
+  u: "T1 · u [mm]", v: "T2 · v [mm]", w: "T3 · w [mm]", t: "Total Translation [mm]",
+  rx: "R1 · θx [rad]", ry: "R2 · θy [rad]", rz: "R3 · θz [rad]", r: "Total Rotation [rad]",
 };
+
+// Component groups that share the same colorbar limits, so swapping
+// between e.g. u/v/w doesn't rescale the colormap.
+const TRANS_COMPS = ["u", "v", "w", "t"];
+const ROT_COMPS   = ["rx", "ry", "rz", "r"];
+
+function sharedAbsMax(
+  station_disp: Record<string, number[]> | undefined,
+  comps: string[],
+): number {
+  if (!station_disp) return 1;
+  let m = 0;
+  for (const c of comps) {
+    const arr = station_disp[c];
+    if (!arr) continue;
+    for (const v of arr) {
+      const a = Math.abs(v);
+      if (Number.isFinite(a) && a > m) m = a;
+    }
+  }
+  return m > 0 ? m : 1;
+}
 
 // Mesh post-processing view: deformed wing surface colormapped by a
 // displacement component, OR internal-force beam diagrams along the span.
 export function MeshPlot() {
   const s = useStore();
-  const { runId, gen, field, dispComp, forceFrame, forceComp, loadcase, scale, setNLoadcases } = s;
+  const {
+    runId, gen, field, contourComp, forceFrame, forceComp,
+    loadcase, scale, setNLoadcases, colorScaleFixed, colorMin, colorMax,
+  } = s;
   const [scene, setScene] = useState<Scene | null>(null);
   const [forces, setForces] = useState<Forces | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -41,27 +68,67 @@ export function MeshPlot() {
   if (field === "disp") {
     if (!scene) return <div className="plot-loading">Loading deformed mesh…</div>;
     const surf = scene.surface;
-    const sd = surf.station_disp?.[dispComp] ?? [];
+    const sd = surf.station_disp?.[contourComp] ?? [];
     const nC = surf.n_chord ?? 1;
     const nS = surf.n_span ?? sd.length;
     const intensity = new Array(nC * nS);
     for (let st = 0; st < nS; st++)
       for (let c = 0; c < nC; c++) intensity[st * nC + c] = sd[st];
 
+    // Shared colorbar scope: all translation components map to the same
+    // |translation|-based range, all rotation components share |rotation|.
+    const fixed = colorScaleFixed && colorMin != null && colorMax != null;
+    const isRot = ROT_COMPS.includes(contourComp);
+    const groupAbs = sharedAbsMax(
+      surf.station_disp,
+      isRot ? ROT_COMPS : TRANS_COMPS,
+    );
+    const cmin = fixed ? colorMin! : -groupAbs;
+    const cmax = fixed ? colorMax! :  groupAbs;
+
+    // Build a per-vertex intensity for any strip-style mesh (n_chord=2
+    // along the span), pulling each station's contour value from the
+    // same station_disp array used by the skin.
+    const stripIntensity = (m: Mesh3D): number[] => {
+      const n_s = m.n_span ?? Math.floor(m.vertices.length / 2);
+      const out = new Array(n_s * 2);
+      for (let s = 0; s < n_s; s++) {
+        const v = sd[s] ?? 0;
+        out[s * 2]     = v;
+        out[s * 2 + 1] = v;
+      }
+      return out;
+    };
+
     const traces: Data[] = [
       meshTrace(surf, {
-        intensity, colorscale: "Turbo", opacity: 0.97,
-        colorbarTitle: DISP_LABEL[dispComp] ?? dispComp, name: "deformed",
+        intensity, colorscale: FEMAP_CMAP, opacity: 0.97,
+        cmin, cmax,
+        colorbarTitle: DISP_LABEL[contourComp] ?? contourComp, name: "deformed",
       }),
-      meshTrace(scene.front_spar, { color: "#3a6ea5", opacity: 0.6, name: "front spar" }),
-      meshTrace(scene.rear_spar, { color: "#9a3a3a", opacity: 0.6, name: "rear spar" }),
-      { ...lineTrace(scene.centroid_line, "#ffd166", "centroid"), visible: "legendonly" } as Data,
-      { ...lineTrace(scene.shear_line, "#17b18a", "shear centre"), visible: "legendonly" } as Data,
+      meshTrace(scene.front_spar, {
+        intensity: stripIntensity(scene.front_spar),
+        colorscale: FEMAP_CMAP, opacity: 0.97, cmin, cmax,
+        name: "front spar", showscale: false,
+      }),
+      meshTrace(scene.rear_spar, {
+        intensity: stripIntensity(scene.rear_spar),
+        colorscale: FEMAP_CMAP, opacity: 0.97, cmin, cmax,
+        name: "rear spar", showscale: false,
+      }),
+      ...(scene.flanges ?? []).map((fl) => meshTrace(fl, {
+        intensity: stripIntensity(fl),
+        colorscale: FEMAP_CMAP, opacity: 0.97, cmin, cmax,
+        name: fl.label, showscale: false,
+      })),
     ];
     return (
       <Plot
         data={traces}
-        layout={{ ...baseLayout, showlegend: true, legend: { x: 0, y: 1, font: { size: 11 } }, scene: scene3d }}
+        layout={{
+          ...baseLayout, showlegend: true, legend: { x: 0, y: 1, font: { size: 11 } },
+          scene: scene3d, uirevision: `mesh:${runId}`,
+        }}
         config={config}
         style={{ width: "100%", height: "100%" }}
         useResizeHandler

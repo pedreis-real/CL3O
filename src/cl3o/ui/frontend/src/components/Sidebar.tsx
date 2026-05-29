@@ -1,3 +1,4 @@
+import React from "react";
 import { useStore } from "../state/store";
 import { ForceSelector } from "./ForceSelector";
 
@@ -8,7 +9,13 @@ function fmt(v: number | null | undefined, digits = 2, unit = ""): string {
   return unit ? `${s} ${unit}` : s;
 }
 
-function Row({ label, value }: { label: string; value: string }) {
+// Chord-fraction value (e.g., 0.3214) -> "32.14 %c"
+function fmtPct(v: number | null | undefined): string {
+  if (v == null || !Number.isFinite(v)) return "—";
+  return `${(v * 100).toFixed(2)} %c`;
+}
+
+function Row({ label, value }: { label: React.ReactNode; value: string }) {
   return (
     <div className="kv">
       <span className="k">{label}</span>
@@ -16,6 +23,26 @@ function Row({ label, value }: { label: string; value: string }) {
     </div>
   );
 }
+
+// Display names for stress endpoints; backend keeps A/B/avg enums.
+const STRESS_END_LABEL: Record<string, string> = {
+  A: "Max",
+  B: "Min",
+  avg: "Avg",
+};
+const STRESS_END_ORDER = ["A", "B", "avg"] as const;
+
+// Femap-style 8 components used by both the Deform and Contour selectors.
+const DISP_COMPONENTS: [string, string][] = [
+  ["u",  "T1 · u (mm)"],
+  ["v",  "T2 · v (mm)"],
+  ["w",  "T3 · w (mm)"],
+  ["t",  "Total Translation"],
+  ["rx", "R1 · θx (rad)"],
+  ["ry", "R2 · θy (rad)"],
+  ["rz", "R3 · θz (rad)"],
+  ["r",  "Total Rotation"],
+];
 
 export function Sidebar() {
   const s = useStore();
@@ -38,15 +65,47 @@ export function Sidebar() {
       </section>
 
       {/* View-specific panel, driven by the top-right toggle */}
+      {view === "misc" && (
+        <section className="panel">
+          <h4>Optimization</h4>
+          <Row label="schema"   value={s.manifest?.schema_version ?? "—"} />
+          <Row label="created"  value={s.manifest?.created_at?.slice(0, 19).replace("T", " ") ?? "—"} />
+          <Row label="D"        value={fmt(s.manifest?.D, 0)} />
+          <Row label="NP"       value={fmt(s.manifest?.NP, 0)} />
+          <Row label="seed"     value={fmt(s.manifest?.seed, 0)} />
+          <Row label="n_gens"   value={fmt(s.manifest?.n_gens, 0)} />
+          <Row label="snapshots" value={fmt(s.manifest?.snapshots?.length, 0)} />
+          <Row label="distinct" value={fmt(s.distinctIndividuals.length, 0)} />
+          <Row label="best_gen" value={fmt(s.manifest?.best_gen, 0)} />
+          <Row label="best f"   value={fmt(
+            s.manifest?.best_f_hist?.[s.manifest?.best_gen ?? 0] ?? null,
+            3,
+          )} />
+        </section>
+      )}
+
+      {view === "misc" && s.miscTab === "search" && (
+        <section className="panel">
+          <h4>About PC1 / PC2</h4>
+          <p className="hint">
+            2-D PCA projection of every distinct design vector X (dim D = 11·n_cpts + 3).
+            PC1 and PC2 are the two orthogonal directions in design space that capture
+            the most variance across the DE walk. Each axis label shows the explained
+            variance — higher = the trajectory is well represented in 2-D. Marker colour
+            encodes fitness z(X).
+          </p>
+        </section>
+      )}
+
       {view === "geometry" && (
         <section className="panel">
           <h4>Planform</h4>
-          <Row label="span b" value={fmt(s.planform?.span, 0, "mm")} />
-          <Row label="area" value={fmt(s.planform?.area, 0, "mm²")} />
-          <Row label="aspect ratio" value={fmt(s.planform?.AR, 2)} />
+          <Row label="b"   value={fmt(s.planform?.span, 0, "mm")} />
+          <Row label="S"   value={fmt(s.planform?.area, 0, "mm²")} />
+          <Row label="AR"  value={fmt(s.planform?.AR, 2)} />
           <Row label="MAC" value={fmt(s.planform?.mac, 1, "mm")} />
-          <Row label="root chord" value={fmt(s.planform?.root_chord, 0, "mm")} />
-          <Row label="tip chord" value={fmt(s.planform?.tip_chord, 0, "mm")} />
+          <Row label="cr"  value={fmt(s.planform?.root_chord, 0, "mm")} />
+          <Row label="ct"  value={fmt(s.planform?.tip_chord, 0, "mm")} />
         </section>
       )}
 
@@ -63,14 +122,14 @@ export function Sidebar() {
               onChange={(e) => s.setStation(Number(e.target.value))}
             />
           </label>
-          <Row label="y (span)" value={fmt(s.section?.y, 0, "mm")} />
+          <Row label="y position" value={fmt(s.section?.y, 0, "mm")} />
           <Row label="chord" value={fmt(s.section?.chord, 0, "mm")} />
           <Row label="area" value={fmt(s.section?.props.area, 1, "mm²")} />
-          <Row label="I_XX" value={fmt(s.section?.props.I_XX, 2, "mm⁴")} />
-          <Row label="I_ZZ" value={fmt(s.section?.props.I_ZZ, 2, "mm⁴")} />
+          <Row label={<>I<sub>XX</sub></>} value={fmt(s.section?.props.I_XX, 2, "mm⁴")} />
+          <Row label={<>I<sub>ZZ</sub></>} value={fmt(s.section?.props.I_ZZ, 2, "mm⁴")} />
           <Row label="J" value={fmt(s.section?.props.J, 2, "mm⁴")} />
-          <Row label="spar xw1" value={fmt(s.section?.props.xw1, 3)} />
-          <Row label="spar xw2" value={fmt(s.section?.props.xw2, 3)} />
+          <Row label="aft spar" value={fmtPct(s.section?.props.xw1)} />
+          <Row label="rear spar" value={fmtPct(s.section?.props.xw2)} />
         </section>
       )}
 
@@ -88,22 +147,34 @@ export function Sidebar() {
           {s.field === "disp" ? (
             <>
               <label className="control">
-                component
-                <select value={s.dispComp} onChange={(e) => s.setDispComp(e.target.value)}>
-                  <option value="u">T1 · u (mm)</option>
-                  <option value="v">T2 · v (mm)</option>
-                  <option value="w">T3 · w (mm)</option>
-                  <option value="t">total |translation|</option>
-                  <option value="rx">R1 · θx (rad)</option>
-                  <option value="ry">R2 · θy (rad)</option>
-                  <option value="rz">R3 · θz (rad)</option>
-                  <option value="r">total |rotation|</option>
+                contour
+                <select value={s.contourComp} onChange={(e) => s.setContourComp(e.target.value)}>
+                  {DISP_COMPONENTS.map(([v, l]) => (
+                    <option key={v} value={v}>{l}</option>
+                  ))}
                 </select>
               </label>
               <label className="control">
                 deform scale ×{s.scale.toFixed(s.scale < 1 ? 2 : 1)}
-                <input type="range" min={0} max={50} step={0.05} value={s.scale}
-                       onChange={(e) => s.setScale(Number(e.target.value))} />
+                <input
+                  type="range"
+                  min={s.scaleLog ? 0 : 0}
+                  max={10}
+                  step={0.1}
+                  value={s.scaleLog ? Math.log10(Math.max(1e-2, s.scale)) * (10 / 1) : s.scale}
+                  onChange={(e) => {
+                    const v = Number(e.target.value);
+                    s.setScale(s.scaleLog ? Math.pow(10, v / 10) : v);
+                  }}
+                />
+              </label>
+              <label className="control inline-toggle">
+                <input
+                  type="checkbox"
+                  checked={s.scaleLog}
+                  onChange={(e) => s.setScaleLog(e.target.checked)}
+                />
+                log scale
               </label>
             </>
           ) : (
@@ -119,7 +190,7 @@ export function Sidebar() {
           <div className="force-selector">
             <div className="force-col">
               <span className="force-col-label">element end</span>
-              {(["A", "avg", "B"] as const).map((e) => (
+              {STRESS_END_ORDER.map((e) => (
                 <label key={e} className={`force-row${s.end === e ? " active" : ""}`}>
                   <input
                     type="radio"
@@ -127,7 +198,7 @@ export function Sidebar() {
                     checked={s.end === e}
                     onChange={() => s.setEnd(e)}
                   />
-                  {e}
+                  {STRESS_END_LABEL[e]}
                 </label>
               ))}
             </div>
@@ -143,38 +214,18 @@ export function Sidebar() {
 }
 
 function FluxDisclaimer() {
+  // Right-side view of the wing: airfoil silhouette with the two spars
+  // dividing it into the three closed cells (I = LE→aft spar, II = aft→rear,
+  // III = rear→TE). Arrows trace the CCW positive flow on each cell.
   return (
     <div className="flux-disclaimer">
       <p className="disclaimer-text">
         Positive shear flow <b>q &gt; 0</b> follows the
         counter-clockwise (CCW) convention for each closed cell,
         consistent with the Megson idealisation used in CL3O.
-        Arrows below show the positive sense for cells I–III.
+        Right-side view of the wing below.
       </p>
-      {/* Schematic: 3-cell box with CCW arrows on each cell */}
-      <svg viewBox="0 0 220 100" className="flux-svg">
-        {/* cell outlines */}
-        <rect x="10"  y="20" width="60" height="60" rx="3"
-              fill="rgba(79,140,255,0.08)" stroke="#4f8cff" strokeWidth="1.2"/>
-        <rect x="80"  y="20" width="60" height="60" rx="3"
-              fill="rgba(46,204,113,0.08)" stroke="#26a76e" strokeWidth="1.2"/>
-        <rect x="150" y="20" width="60" height="60" rx="3"
-              fill="rgba(255,209,102,0.08)" stroke="#e6ce00" strokeWidth="1.2"/>
-        {/* cell labels */}
-        <text x="40"  y="55" textAnchor="middle" fontSize="11" fill="#c9d4e3">I</text>
-        <text x="110" y="55" textAnchor="middle" fontSize="11" fill="#c9d4e3">II</text>
-        <text x="180" y="55" textAnchor="middle" fontSize="11" fill="#c9d4e3">III</text>
-        {/* CCW arrows — top going left, bottom going right */}
-        {/* Cell I */}
-        <path d="M55,22 L25,22" stroke="#4f8cff" strokeWidth="1.5" markerEnd="url(#arr-b)" fill="none"/>
-        <path d="M15,78 L45,78" stroke="#4f8cff" strokeWidth="1.5" markerEnd="url(#arr-b)" fill="none"/>
-        {/* Cell II */}
-        <path d="M125,22 L95,22" stroke="#26a76e" strokeWidth="1.5" markerEnd="url(#arr-g)" fill="none"/>
-        <path d="M85,78 L115,78" stroke="#26a76e" strokeWidth="1.5" markerEnd="url(#arr-g)" fill="none"/>
-        {/* Cell III */}
-        <path d="M195,22 L165,22" stroke="#e6ce00" strokeWidth="1.5" markerEnd="url(#arr-y)" fill="none"/>
-        <path d="M155,78 L185,78" stroke="#e6ce00" strokeWidth="1.5" markerEnd="url(#arr-y)" fill="none"/>
-        {/* arrow markers */}
+      <svg viewBox="0 0 240 110" className="flux-svg" aria-label="right view of wing showing 3-cell flux convention">
         <defs>
           <marker id="arr-b" markerWidth="6" markerHeight="6" refX="3" refY="3" orient="auto">
             <path d="M0,0 L6,3 L0,6 Z" fill="#4f8cff"/>
@@ -186,8 +237,43 @@ function FluxDisclaimer() {
             <path d="M0,0 L6,3 L0,6 Z" fill="#e6ce00"/>
           </marker>
         </defs>
-        {/* CCW label */}
-        <text x="110" y="96" textAnchor="middle" fontSize="9" fill="#7c8aa5">↺ positive direction (CCW)</text>
+
+        {/* Airfoil silhouette (right view of wing). Cambered NACA-like outline
+            with LE at x≈20, TE at x≈220; spars at x≈90 (aft) and x≈150 (rear). */}
+        <path
+          d="M20,55
+             C 35,30  80,22  130,28
+             C 175,33 205,42 220,55
+             C 205,68 175,72  130,75
+             C 80,75  35,68  20,55 Z"
+          fill="rgba(255,255,255,0.04)"
+          stroke="#7c8aa5"
+          strokeWidth="1.4"
+        />
+
+        {/* Aft and rear spars (vertical webs). */}
+        <line x1="90"  y1="30" x2="90"  y2="76" stroke="#7c8aa5" strokeWidth="1" strokeDasharray="3 2"/>
+        <line x1="150" y1="29" x2="150" y2="76" stroke="#7c8aa5" strokeWidth="1" strokeDasharray="3 2"/>
+
+        {/* Cell labels. */}
+        <text x="55"  y="55" textAnchor="middle" fontSize="11" fill="#c9d4e3">I</text>
+        <text x="120" y="55" textAnchor="middle" fontSize="11" fill="#c9d4e3">II</text>
+        <text x="185" y="55" textAnchor="middle" fontSize="11" fill="#c9d4e3">III</text>
+
+        {/* CCW arrows: top going LE-ward (left), bottom going TE-ward (right). */}
+        {/* Cell I (LE → aft spar) */}
+        <path d="M80,34 L40,34"  stroke="#4f8cff" strokeWidth="1.5" markerEnd="url(#arr-b)" fill="none"/>
+        <path d="M35,72 L75,72"  stroke="#4f8cff" strokeWidth="1.5" markerEnd="url(#arr-b)" fill="none"/>
+        {/* Cell II (aft → rear spar) */}
+        <path d="M140,32 L100,32" stroke="#26a76e" strokeWidth="1.5" markerEnd="url(#arr-g)" fill="none"/>
+        <path d="M95,74  L135,74" stroke="#26a76e" strokeWidth="1.5" markerEnd="url(#arr-g)" fill="none"/>
+        {/* Cell III (rear spar → TE) */}
+        <path d="M205,38 L160,38" stroke="#e6ce00" strokeWidth="1.5" markerEnd="url(#arr-y)" fill="none"/>
+        <path d="M155,72 L200,72" stroke="#e6ce00" strokeWidth="1.5" markerEnd="url(#arr-y)" fill="none"/>
+
+        {/* Axis hint (chord arrow + label). */}
+        <line x1="20" y1="100" x2="220" y2="100" stroke="#3a4660" strokeWidth="0.8" markerEnd="url(#arr-b)"/>
+        <text x="120" y="108" textAnchor="middle" fontSize="8" fill="#7c8aa5">x (chord) — right view of wing  ↺ CCW</text>
       </svg>
     </div>
   );

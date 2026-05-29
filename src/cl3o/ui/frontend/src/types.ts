@@ -21,6 +21,12 @@ export interface Snapshot {
   mass: number | null;
   penalty: number | null;
   is_feasible: boolean;
+  is_duplicate?: boolean;
+  first_seen_gen?: number;
+}
+
+export interface DistinctEntry extends Snapshot {
+  // Same shape as Snapshot; semantically: first appearance of a distinct X.
 }
 
 export interface Manifest {
@@ -36,6 +42,7 @@ export interface Manifest {
   std_f_hist: (number | null)[];
   feasible_f: number | null;
   snapshots: Snapshot[];
+  distinct_individuals?: DistinctEntry[];
   best_gen: number;
 }
 
@@ -181,6 +188,33 @@ export interface Scene {
   n_stations: number;
   y_span: number[];
   deformed: boolean;
+  layups?: {
+    ls1: number[]; ls2: number[];
+    lw1: number[]; lw2: number[];
+    lf1: number[]; lf2: number[]; lf3: number[]; lf4: number[];
+  };
+  laminate_catalog?: Record<string, { name: string; family: string }>;
+  flanges?: (Mesh3D & { layup_idx: number; label: string })[];
 }
 
-export type ViewKind = "geometry" | "section" | "mesh" | "stress";
+export interface SearchSpace {
+  x: number[];
+  y: number[];
+  f: (number | null)[];
+  gen: number[];
+  feasible: boolean[];
+  cum_path?: number[];
+  explained_variance: [number, number];
+  n_distinct: number;
+  metrics: {
+    n_gens: number;
+    best_f: number | null;
+    best_gen: number;
+    mean_f: number | null;
+    std_f: number | null;
+    total_improvement?: number | null;
+    mean_improvement?: number | null;
+  };
+}
+
+export type ViewKind = "geometry" | "section" | "mesh" | "stress" | "misc";

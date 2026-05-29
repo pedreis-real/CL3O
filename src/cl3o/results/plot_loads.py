@@ -248,6 +248,7 @@ def plot_external_loads(
 
     figures: list[plt.Figure] = []
     for arr, name, title_tag, unit in specs:
+        print(f"{name} = {np.sum(arr)}")
         save_path = None
         if out_dir is not None:
             save_path = Path(out_dir) / f"{name}.pdf"
