@@ -52,6 +52,7 @@ from typing import Any
 from dataclasses import dataclass, field
 
 import numpy as np
+import scipy.linalg as sla
 
 # ================ Paths bootstrap ================
 
@@ -202,7 +203,21 @@ class LinearStaticSolver:
 
         # Step 3. Solve condensed system
         K_ff = self.mesh.K[np.ix_(f, f)]
-        
+
+        # Factorise K_ff once; each load case is a cheap back-solve.
+        # K_ff is symmetric positive definite for a well-posed beam model, so
+        # LU is safe and avoids repeating the O(n³) factorisation per load case.
+        try:
+            lu, piv = sla.lu_factor(K_ff)
+        except sla.LinAlgError as exc:
+            raise np.linalg.LinAlgError(
+                f"[CL3O] Singular stiffness matrix K_ff (LU factorisation).\n"
+                f"| free DOFs : {nf}\n"
+                f"| K_ff shape: {K_ff.shape}\n"
+                f"Check boundary conditions — rigid body motion signature.\n"
+                f"Underlying error: {exc}"
+            )
+
         d_sc_gl = np.zeros((dof, nc))
         R = np.zeros((dof, nc))
         dmatrix = np.zeros((6, n, nc))
@@ -213,26 +228,21 @@ class LinearStaticSolver:
         Q_c_gl  = np.zeros((12, m, nc))
 
         T_load_ac_sc = self.mesh.T_load_ac_sc   # (6, 6, n)
+
+        # Pre-translate all load cases from AC to SC in one vectorised pass:
+        #   F_SC[6j:6j+6, i] = T_load_ac_sc[:,:,j] @ F_AC[6j:6j+6, i]
+        # Shape: T=(6,6,n), F=(dof, nc) → view F as (n,6,nc) then einsum.
+        F_all = self.F.copy()                   # (dof, nc)
+        F_view = F_all.reshape(n, 6, nc)        # (n, 6, nc) — no copy, F is C-order after reshape
+        # einsum: 'jki,jkl->jil'... simpler: loop over j is fast for small n
+        # but vectorise: T (6,6,n) → (n,6,6); F_view (n,6,nc)
+        T_t = T_load_ac_sc.transpose(2, 0, 1)  # (n, 6, 6)
+        F_view[:] = T_t @ F_view               # (n,6,6) @ (n,6,nc) → (n,6,nc)
+
         for i in range(nc):
-            F_i = self.F[:, i].copy()           # decouple from self.F view
+            F_i = F_all[:, i]
 
-            # Step 2.5. Translate F_i from AC (CA = 0.25*chord) to SC, per-node.
-            # F_SC = F_AC ; M_SC = M_AC - [r_AC_to_SC]_x @ F_AC.
-            for j in range(n):
-                sl = slice(6 * j, 6 * (j + 1))
-                F_i[sl] = T_load_ac_sc[:, :, j] @ F_i[sl]
-
-            try:
-                d_free = np.linalg.solve(K_ff, F_i[f])
-            except np.linalg.LinAlgError as exc:
-                raise np.linalg.LinAlgError(
-                    f"[CL3O] Singular stiffness matrix K_ff.\n"
-                    f"| free DOFs : {nf}\n"
-                    f"| K_ff shape: {K_ff.shape}\n"
-                    f"Check boundary conditions - this is a signature"
-                    f" of rigid bosy motion."
-                    f"Underlying error: {exc}"
-                )
+            d_free = sla.lu_solve((lu, piv), F_i[f])
 
             # Step 4. Displacement vector (global, in SC)
             d_i    = np.zeros((dof))

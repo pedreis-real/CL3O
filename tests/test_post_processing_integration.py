@@ -59,7 +59,10 @@ def test_generation_archive_and_manifest(tmp_path, db_specs) -> None:
     with open(manifest) as fh:
         mani = json.load(fh)
     assert "schema_version" in mani
-    assert len(mani["snapshots"]) == len(pkls)
+    # Snapshots may include duplicates pointing to a previous pickle; only
+    # the distinct ones produce a file on disk.
+    distinct = [s for s in mani["snapshots"] if not s.get("is_duplicate", False)]
+    assert len(distinct) == len(pkls)
 
     # Each archived snapshot reloads into a populated RuntimeData.
     with open(pkls[0], "rb") as fh:

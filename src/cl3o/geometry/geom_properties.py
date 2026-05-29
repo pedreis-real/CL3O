@@ -995,8 +995,8 @@ class GeomPropCalculator:
             q[5] = qs0[1] + qb_56
             q[6] = qs0[1] + qb_67
             q[7] = qs0[2]
-            q[8] = qs0[0] + qs0[1] + qb_35
-            q[9] = qs0[1] + qs0[2] + qb_17
+            q[8] = -qs0[0] + qs0[1] + qb_35
+            q[9] = qs0[1] - qs0[2] - qb_17
             return q
 
         self.qsX_star  = _assemble(qs0_X, self._qbX)

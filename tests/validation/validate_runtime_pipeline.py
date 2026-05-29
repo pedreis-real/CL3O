@@ -369,9 +369,10 @@ def scenario_evaluator(rep: _Reporter, runner: RunCLEO) -> None:
     )
 
     # Fitness arithmetic should match TotalScore definition.
-    z = float(rt.score.total) * 1000.0 + float(rt.penalty.total)
+    from cl3o.Constants import WEIGHTING_FACTOR
+    z = float(rt.score.total) * float(WEIGHTING_FACTOR) + float(rt.penalty.total)
     rep.expect(
-        "z(X) = 1000 * m + P(X) (thesis Eq. 3.68)",
+        "z(X) = w_m * m + P(X) (thesis Eq. 3.68)",
         np.isclose(z, rt.fitness.total, rtol=1e-9, atol=1e-9),
         f"reconstructed={z}, stored={rt.fitness.total}",
     )
@@ -511,9 +512,10 @@ def scenario_de_loop(rep: _Reporter, runner: RunCLEO) -> None:
     with open(out_dir / "manifest.json") as fh:
         mani = json.load(fh)
     rep.expect("manifest exposes schema_version", "schema_version" in mani)
+    distinct = [s for s in mani["snapshots"] if not s.get("is_duplicate", False)]
     rep.expect(
-        "manifest snapshot count matches written pickles",
-        len(mani["snapshots"]) == len(list((out_dir / "generations").glob("gen_*.pkl"))),
+        "distinct snapshot count matches written pickles",
+        len(distinct) == len(list((out_dir / "generations").glob("gen_*.pkl"))),
     )
 
 

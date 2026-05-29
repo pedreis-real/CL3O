@@ -249,6 +249,51 @@ class TsaiWuFailure:
     # Private - Evaluation pipeline
     # ----------------------------------------
 
+    @staticmethod
+    def _tsw_batch(
+        stress_flat : np.ndarray,
+        Ts_col      : np.ndarray,
+        F_stack     : np.ndarray,
+    ) -> tuple[np.ndarray, int]:
+        '''
+        Vectorised Tsai-Wu solve for one laminate and many stress scalars.
+
+        For panels  the caller passes  Ts_col = Ts_stack[:, :, 2]  (tau column).
+        For booms   the caller passes  Ts_col = Ts_stack[:, :, 0]  (sigma column).
+
+        In both cases s_off = scalar * e_k, so
+            s_on[ply] = scalar * Ts_col[ply]
+            a[ply]    = scalar² * A_vec[ply]
+            b[ply]    = scalar  * B_vec[ply]
+
+        where A_vec and B_vec depend only on the laminate (precomputed here).
+
+        Args:
+            stress_flat : 1-D array of scalar stress values, shape (K,).
+            Ts_col      : Transformation column, shape (N_plies, 3).
+            F_stack     : Tsai-Wu strength parameters, shape (N_plies, 6).
+
+        Returns:
+            R_min_flat  : Minimum R across plies for each scalar, shape (K,).
+            nv          : Total count of (scalar, ply) pairs with R < 1.
+        '''
+        t0, t1, t2 = Ts_col[:, 0], Ts_col[:, 1], Ts_col[:, 2]
+        Fxx = F_stack[:, 0]; Fyy = F_stack[:, 1]; Fss = F_stack[:, 2]
+        Fxy = F_stack[:, 3]; Fx  = F_stack[:, 4]; Fy  = F_stack[:, 5]
+        A_vec = Fxx*t0*t0 + Fyy*t1*t1 + Fss*t2*t2 + 2.0*Fxy*t0*t1  # (N,)
+        B_vec = Fx*t0 + Fy*t1                                         # (N,)
+
+        # a[k, n] = s[k]² * A[n],  b[k, n] = s[k] * B[n]
+        a_batch = stress_flat[:, None] ** 2 * A_vec   # (K, N)
+        b_batch = stress_flat[:, None]      * B_vec   # (K, N)
+
+        safe    = a_batch > 0.0
+        a_safe  = np.where(safe, a_batch, 1.0)
+        half_ba = b_batch / (2.0 * a_safe)
+        R_batch = np.where(safe, -half_ba + np.sqrt(half_ba**2 + 1.0/a_safe), np.inf)
+
+        return R_batch.min(axis=1), int((R_batch < 1.0).sum())
+
     def _evaluate(self) -> None:
         '''
         Full Tsai-Wu evaluation pipeline.
@@ -256,75 +301,90 @@ class TsaiWuFailure:
         Steps
         -----
         1. Extract stress arrays from rt.stress (sigma, tau).
-        2. For every (element, end, condition):
-            a) Panels: build s_off = [0, 0, tau] and evaluate the
-               laminate referenced by lam_T1[sta_idx, T1_seg_idx].
-            b) Booms : build s_off = [sigma, 0, 0] and evaluate the
-               laminate referenced by lam_T4[sta_idx, flange_idx].
-               Booms without a flange (B2, B4, B6) are skipped.
+        2. Group (element, end, condition) combinations by unique laminate
+           index and solve all stress states for that laminate in one
+           vectorised batch (one call per unique laminate, not per location).
         3. Pack per-component R, MS and global aggregates.
         '''
-        sigma_A, sigma_B = self.stress.sigma   # (m, 7,  nc) each
-        tau_A,   tau_B   = self.stress.tau     # (m, 10, nc) each
+        sigma_A, sigma_B = self.stress.sigma   # (m, N_BOOMS,  nc) each
+        tau_A,   tau_B   = self.stress.tau     # (m, N_PANELS, nc) each
 
         m  = self.m
         nc = self.nc
 
-        sigma_ends = (sigma_A, sigma_B)
-        tau_ends   = (tau_A,   tau_B)
-        sta_ends   = (self.conn[:, 0], self.conn[:, 1])
+        sta_A = self.conn[:, 0].astype(int)
+        sta_B = self.conn[:, 1].astype(int)
+
+        # ------------------------------------------------------------------ panels
+        # lam_panels[e, i, p] = laminate index for element i, panel p, end e
+        t2t1       = np.asarray(T2_TO_T1, dtype=int)
+        lam_panels = np.stack([
+            self.lam_T1[sta_A][:, t2t1],   # (m, N_PANELS) end A
+            self.lam_T1[sta_B][:, t2t1],   # (m, N_PANELS) end B
+        ])                                  # (2, m, N_PANELS)
+
+        # tau_all[e, i, p, j] = shear stress at that location / load case
+        tau_all    = np.stack([tau_A, tau_B])   # (2, m, N_PANELS, nc)
 
         R_panels  = np.full((m, N_PANELS, 2, nc), np.inf, dtype=float)
-        R_booms   = np.full((m, N_BOOMS,  2, nc), np.inf, dtype=float)
         MS_panels = np.full((m, N_PANELS, 2, nc), np.inf, dtype=float)
-        MS_booms  = np.full((m, N_BOOMS,  2, nc), np.inf, dtype=float)
-
         nv = 0
 
-        for e in range(2):
-            sigma_e = sigma_ends[e]
-            tau_e   = tau_ends[e]
-            sta_e   = sta_ends[e]
+        for lam_idx in np.unique(lam_panels):
+            Ts_stack, F_stack = self._laminate_arrays(int(lam_idx))
+            if Ts_stack.size == 0:
+                continue
 
-            for i in range(m):
-                sta_idx = int(sta_e[i])
-                lamT1_sta = self.lam_T1[sta_idx]
-                lamT4_sta = self.lam_T4[sta_idx]
+            mask     = lam_panels == lam_idx          # (2, m, N_PANELS)
+            # tau_all[mask] → (n_hits, nc); ravel to one stress vector per row
+            tau_flat = tau_all[mask].ravel()          # (n_hits * nc,)
 
-                for j in range(nc):
+            R_min_flat, nv_lam = self._tsw_batch(tau_flat, Ts_stack[:, :, 2], F_stack)
+            nv += nv_lam
 
-                    # -------- Panels (T2) --------
-                    for p in range(N_PANELS):
-                        seg_idx = int(T2_TO_T1[p])
-                        s_off = np.array(
-                            [0.0, 0.0, float(tau_e[i, p, j])],
-                            dtype=float,
-                        )
-                        R, n_below = self._min_strength_ratio(
-                            lam_idx = int(lamT1_sta[seg_idx]),
-                            s_off   = s_off,
-                        )
-                        R_panels[i, p, e, j]  = R
-                        MS_panels[i, p, e, j] = R - 1.0
-                        nv         += n_below
+            n_hits   = mask.sum()
+            R_min_2d = R_min_flat.reshape(n_hits, nc)
+            e_idx, i_idx, p_idx = np.where(mask)
+            R_panels [i_idx, p_idx, e_idx, :] = R_min_2d
+            MS_panels[i_idx, p_idx, e_idx, :] = R_min_2d - 1.0
 
-                    # -------- Booms (T4 flanges) --------
-                    for b in range(N_BOOMS):
-                        f_idx = int(BOOM_TO_T4[b])
-                        if f_idx < 0:
-                            continue
-                        s_off = np.array(
-                            [float(sigma_e[i, b, j]), 0.0, 0.0],
-                            dtype=float,
-                        )
-                        R, n_below = self._min_strength_ratio(
-                            lam_idx = int(lamT4_sta[f_idx]),
-                            s_off   = s_off,
-                        )
-                        R_booms[i, b, e, j]  = R
-                        MS_booms[i, b, e, j] = R - 1.0
-                        nv        += n_below
+        # ------------------------------------------------------------------ booms
+        active_b = np.where(np.asarray(BOOM_TO_T4) >= 0)[0]   # (n_ab,)
+        f_active = np.asarray(BOOM_TO_T4)[active_b]            # flange indices
 
+        lam_booms_act = np.stack([
+            self.lam_T4[sta_A][:, f_active],   # (m, n_ab) end A
+            self.lam_T4[sta_B][:, f_active],   # (m, n_ab) end B
+        ])                                      # (2, m, n_ab)
+
+        # sigma_all[e, i, k, j] for active boom k
+        sigma_all = np.stack([
+            sigma_A[:, active_b, :],
+            sigma_B[:, active_b, :],
+        ])                                      # (2, m, n_ab, nc)
+
+        R_booms  = np.full((m, N_BOOMS, 2, nc), np.inf, dtype=float)
+        MS_booms = np.full((m, N_BOOMS, 2, nc), np.inf, dtype=float)
+
+        for lam_idx in np.unique(lam_booms_act):
+            Ts_stack, F_stack = self._laminate_arrays(int(lam_idx))
+            if Ts_stack.size == 0:
+                continue
+
+            mask     = lam_booms_act == lam_idx       # (2, m, n_ab)
+            sig_flat = sigma_all[mask].ravel()         # (n_hits * nc,)
+
+            R_min_flat, nv_lam = self._tsw_batch(sig_flat, Ts_stack[:, :, 0], F_stack)
+            nv += nv_lam
+
+            n_hits   = mask.sum()
+            R_min_2d = R_min_flat.reshape(n_hits, nc)
+            e_idx, i_idx, k_idx = np.where(mask)
+            b_idx = active_b[k_idx]                   # active-boom pos → full boom index
+            R_booms [i_idx, b_idx, e_idx, :] = R_min_2d
+            MS_booms[i_idx, b_idx, e_idx, :] = R_min_2d - 1.0
+
+        # ---------------------------------------------------------------- aggregate
         MS_min_component = np.concatenate([
             MS_panels.ravel(),
             MS_booms[:, [0, 2, 4, 6], :, :].ravel(),

@@ -24,24 +24,30 @@ THETA_MAX    = np.radians(2.0)  # Maximum rotation
 
 LARGE_DISPL_MS = 1.0e6
 
-# Default mass weighting factor for the DE objective TotalScore.
-DFLT_MASS_COEF = 1000.0     # 1000 -> ton to kg
+# Weighting factor for the DE objective TotalScore.
+WEIGHTING_FACTOR = 1.0     # e.g. wm = 1000 -> transforms mass in kg to g
 
 # Differential Evolution default hyper-parameters
 DE_HYPERPAR: dict = {
-    'NP'      : 40,
-    'CR'      : 0.9,
-    'F'       : 0.8,
-    'lambda'  : 0.5,
-    'k_max'   : 400,
-    'seed'    : 42,
-    'std_tol' : 1.0e-6,
+    'NP'             : 40,
+    'CR'             : 0.9,
+    'F'              : 0.8,
+    'lambda'         : 0.5,
+    'k_max'          : 400,
+    'seed'           : 42,
+    'std_tol'        : 1.0e-6,     # std_tol * mean_f < std_f
+    'stall_patience' : 50,         # gens of no best-f improvement -> stop
 }
+
+# Distinct-individual dedup tolerance (euclidean norm in design space)
+DEDUP_TOL = 1.0e-6
+# Relative tolerance used to detect best-f improvement for the stall counter
+STALL_REL_TOL = 1.0e-9
 
 # Optimization design-vector boundaries
 OPT_LIMS = {
     'xw1'    : (0.10, 0.40),
-    'xw2'    : (0.41, 0.60),
+    'xw2'    : (0.30, 0.60),    # may overlap xw1; swap enforced at decode
     'bfk'    : (0.02, 0.20),
     'layup'  : (1, 22),
     'fl_tpr' : (0.01, 1.0),
@@ -49,7 +55,7 @@ OPT_LIMS = {
 
 # Penalty paremeters
 PENALTY_VARS = {
-    "Pcap" : 1.0e4,
+    "Pcap" : 1.0e3,     # if mass in kg, Pcap means a wing with {Pcap} kg
     "psi1" : 0.10,
     "psi2" : 0.90,
     "v1" : 0.05,

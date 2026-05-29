@@ -244,14 +244,34 @@ class SectionBuilder:
             float(lam.E2_bend),
         )
 
-    def _build_segment_arrays(
+    _SEG_LAYUP_KEYS = ['ls1', 'ls2', 'ls2', 'ls2', 'ls2', 'lw1', 'lw2']
+    _FLN_LAYUP_KEYS = ['lf1', 'lf2', 'lf3', 'lf4']
+    _FLN_WIDTH_KEYS = ['bf1', 'bf2', 'bf3', 'bf4']
+
+    def _get_lam_indices(
         self,
-        discrete_opt_vars : dict[str, int],
-        continuous_opt_vars : dict[str, float],
-        chord_i : float,
+        discrete_opt_vars: dict[str, int],
+    ) -> tuple[np.ndarray, np.ndarray]:
+        '''
+        Extract (seg_lam, fln_lam) integer index arrays from discrete opt vars.
+        Cheap — always called even on a geometry cache hit, because lam_T1/lam_T4
+        are needed by TsaiWuFailure downstream.
+        '''
+        _a = np.asarray
+        seg_lam = _a([discrete_opt_vars[k] for k in self._SEG_LAYUP_KEYS], dtype=int)
+        fln_lam = _a([discrete_opt_vars[k] for k in self._FLN_LAYUP_KEYS], dtype=int)
+        return seg_lam, fln_lam
+
+    def _build_material_arrays(
+        self,
+        seg_lam          : np.ndarray,
+        fln_lam          : np.ndarray,
+        continuous_opt_vars: dict[str, float],
+        chord_i          : float,
     ) -> tuple[tuple, tuple]:
         '''
         Build (7,) material arrays for T1 segments and (4,) flange arrays.
+        Called only on a geometry cache miss.
 
         T1 mapping:
             seg1 -> ls1, seg2..5 -> ls2, seg6 -> lw1, seg7 -> lw2
@@ -262,59 +282,30 @@ class SectionBuilder:
             T4_mat_props : (t_flange, E1_flange, E2_flange, G_flange, bf,
                            E1_bend_flange, E2_bend_flange)
         '''
-        # T1 segment -> layup key mapping (seg1=ls1, seg2..5=ls2,
-        # seg6=lw1, seg7=lw2). Aligned with the index passed to _seg
-        # in geom_properties._segment_T1.
-        seg_layup_keys = ['ls1', 'ls2', 'ls2', 'ls2', 'ls2', 'lw1', 'lw2']
-        fln_layup_keys = ['lf1', 'lf2', 'lf3', 'lf4']
-        fln_width_keys = ['bf1', 'bf2', 'bf3', 'bf4']
+        bf = np.asarray(
+            [continuous_opt_vars[k] * chord_i for k in self._FLN_WIDTH_KEYS]
+        )
 
-        _a = np.asarray
-        seg_lam = _a([discrete_opt_vars[k] for k in seg_layup_keys])
-        fln_lam = _a([discrete_opt_vars[k] for k in fln_layup_keys])
-        bf      = _a([continuous_opt_vars[k] * chord_i for k in fln_width_keys])
-
-        # Build T1
-        t_seg       = np.zeros(N_SEG_T1)
-        G_seg       = np.zeros(N_SEG_T1)
-        E1_seg      = np.zeros(N_SEG_T1)
-        E2_seg      = np.zeros(N_SEG_T1)
-        E1_bend_seg = np.zeros(N_SEG_T1)
-        E2_bend_seg = np.zeros(N_SEG_T1)
+        t_seg = np.zeros(N_SEG_T1); G_seg = np.zeros(N_SEG_T1)
+        E1_seg = np.zeros(N_SEG_T1); E2_seg = np.zeros(N_SEG_T1)
+        E1_bend_seg = np.zeros(N_SEG_T1); E2_bend_seg = np.zeros(N_SEG_T1)
         for k, lam_idx in enumerate(seg_lam):
             t, E1, E2, G12, E1b, E2b = self._extract_material(lam_idx)
-            t_seg[k]       = t
-            E1_seg[k]      = E1
-            E2_seg[k]      = E2
-            G_seg[k]       = G12
-            E1_bend_seg[k] = E1b
-            E2_bend_seg[k] = E2b
+            t_seg[k] = t; E1_seg[k] = E1; E2_seg[k] = E2
+            G_seg[k] = G12; E1_bend_seg[k] = E1b; E2_bend_seg[k] = E2b
 
-        # Build T4
-        t_flange       = np.zeros(N_FLANGES)
-        E1_flange      = np.zeros(N_FLANGES)
-        E2_flange      = np.zeros(N_FLANGES)
-        G_flange       = np.zeros(N_FLANGES)
-        E1_bend_flange = np.zeros(N_FLANGES)
-        E2_bend_flange = np.zeros(N_FLANGES)
+        t_fl = np.zeros(N_FLANGES); G_fl = np.zeros(N_FLANGES)
+        E1_fl = np.zeros(N_FLANGES); E2_fl = np.zeros(N_FLANGES)
+        E1b_fl = np.zeros(N_FLANGES); E2b_fl = np.zeros(N_FLANGES)
         for j, lf_idx in enumerate(fln_lam):
             t, E1, E2, G12, E1b, E2b = self._extract_material(lf_idx)
-            t_flange[j]       = t
-            E1_flange[j]      = E1
-            E2_flange[j]      = E2
-            G_flange[j]       = G12
-            E1_bend_flange[j] = E1b
-            E2_bend_flange[j] = E2b
+            t_fl[j] = t; E1_fl[j] = E1; E2_fl[j] = E2
+            G_fl[j] = G12; E1b_fl[j] = E1b; E2b_fl[j] = E2b
 
-        T1_mat_props = (t_seg, E1_seg, E2_seg, G_seg,
-                        E1_bend_seg, E2_bend_seg)
-        T4_mat_props = (t_flange, E1_flange, E2_flange, G_flange, bf,
-                        E1_bend_flange, E2_bend_flange)
-
-        self.lam_T1.append(seg_lam)
-        self.lam_T4.append(fln_lam)
-
-        return T1_mat_props, T4_mat_props
+        return (
+            (t_seg, E1_seg, E2_seg, G_seg, E1_bend_seg, E2_bend_seg),
+            (t_fl,  E1_fl,  E2_fl,  G_fl,  bf, E1b_fl, E2b_fl),
+        )
 
     # ----------------------------------------------------------------
     # Private - Build all stations
@@ -325,45 +316,68 @@ class SectionBuilder:
         Execute the full pipeline for every spanwise station defined
         in lerp_wing_db.Y_sta.
 
+        GeomData results are cached in static_data.geom_cache keyed by
+        (station_idx, xw1_r, xw2_r, bf*_r, ls1..lf4) — all variables that
+        affect the section geometry and stiffness. Cache hits skip the
+        GeomPropCalculator call (~2.6 ms/station); lam_T1/lam_T4 are always
+        recomputed (cheap) because TsaiWuFailure needs them.
+
         Stores:
-            self.sec_data : list[GeomData], one entry per station,
-                            ordered root -> tip.
+            self.data : SectionData with sec_data, lam_T1, lam_T4.
         '''
-        wng = self.st.lerp_wing_db
+        wng        = self.st.lerp_wing_db
+        geom_cache : dict = self.st.geom_cache   # shared across all DE evaluations
 
         self.lam_T1 = []
         self.lam_T4 = []
 
         self.logger.info("Building cross-sections.")
         sec: list[GeomData] = []
+        _r4 = lambda v: round(float(v), 4)
+
         for k, station in enumerate(wng.Y_sta):
-
-            # Blend airfoil
-            afl_pts = self._blend_airfoil(station)
-
-            # Interpolate opt-vars
+            afl_pts             = self._blend_airfoil(station)
             continuous_opt_vars = self._interp_opt_vars(station)
             discrete_opt_vars   = self._step_opt_vars(station)
 
-            # Build material arrays
-            (T1_props, T4_props) = self._build_segment_arrays(
-                discrete_opt_vars, continuous_opt_vars, wng.chord[k]
+            # lam indices: cheap; always needed by TsaiWuFailure
+            seg_lam, fln_lam = self._get_lam_indices(discrete_opt_vars)
+            self.lam_T1.append(seg_lam)
+            self.lam_T4.append(fln_lam)
+
+            # Cache key: all variables that determine GeomData at this station.
+            # bf* are stored as fractions (chord is fixed per station index k).
+            c = continuous_opt_vars
+            d = discrete_opt_vars
+            cache_key = (
+                k,
+                _r4(c['xw1']), _r4(c['xw2']),
+                _r4(c['bf1']), _r4(c['bf2']), _r4(c['bf3']), _r4(c['bf4']),
+                int(d['ls1']), int(d['ls2']), int(d['lw1']), int(d['lw2']),
+                int(d['lf1']), int(d['lf2']), int(d['lf3']), int(d['lf4']),
             )
 
-            # Calculate geometrical properties
-            calc = GeomPropCalculator(
-                afl_pts = afl_pts,
-                chord   = float(wng.chord[k]),
-                twist   = float(np.degrees(wng.twist[k])),
-                Y_sta   = float(station),
-                xw1     = continuous_opt_vars['xw1'],
-                xw2     = continuous_opt_vars['xw2'],
-                T1_props  = T1_props,
-                T4_props  = T4_props,
-                LE_xz   = wng.LE[k, [0, 2]],
-                enable_logging = self.log,
-            )
-            sec.append(calc.run())
+            geom_data = geom_cache.get(cache_key)
+            if geom_data is None:
+                T1_props, T4_props = self._build_material_arrays(
+                    seg_lam, fln_lam, c, float(wng.chord[k])
+                )
+                calc = GeomPropCalculator(
+                    afl_pts       = afl_pts,
+                    chord         = float(wng.chord[k]),
+                    twist         = float(np.degrees(wng.twist[k])),
+                    Y_sta         = float(station),
+                    xw1           = c['xw1'],
+                    xw2           = c['xw2'],
+                    T1_props      = T1_props,
+                    T4_props      = T4_props,
+                    LE_xz         = wng.LE[k, [0, 2]],
+                    enable_logging = self.log,
+                )
+                geom_data = calc.run()
+                geom_cache[cache_key] = geom_data
+
+            sec.append(geom_data)
 
         self.data = SectionData(
             n_sta    = wng.n_sta,

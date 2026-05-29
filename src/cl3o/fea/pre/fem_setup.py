@@ -69,6 +69,11 @@ class FemPreprocessData:
 
     loads : dict = None
 
+    # Per-element BeamData+T-matrix cache shared across all DE evaluations.
+    # Key: (id(geomA), id(geomB), release_code) — safe because GeomData objects
+    # in StaticData.geom_cache are never evicted (plain dict, no LRU).
+    beam_cache : dict = field(default_factory=dict)
+
 
 
 # ================================================================================

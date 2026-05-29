@@ -123,6 +123,8 @@ class MeshBuilder:
         fem_setup = data[0]
         sections  = data[1]
 
+        self.beam_cache = fem_setup.beam_cache
+
         self.n       = fem_setup.n
         self.m       = fem_setup.m
         self.dof     = fem_setup.dof
@@ -199,40 +201,69 @@ class MeshBuilder:
         T_c_gl  = np.zeros((12, 12, m))
         Ei      = np.zeros((12, m), dtype=int)
         for i in range(m):
-            # Step 3. Beam element data
-            beam_data = self._get_current_beam_element_data(
-                conn_i = self.conn[i,:],
-            )
+            conn_i = self.conn[i, :]
+            geomA  = self.sec_data[int(conn_i[0])]
+            geomB  = self.sec_data[int(conn_i[1])]
+            rls    = int(2 * conn_i[2] + conn_i[3])
+
+            # Step 3. Beam element — use cache when geomA/geomB are reused.
+            # Cache key uses object identity: GeomData objects are kept alive
+            # by StaticData.geom_cache so id() values are stable.
+            beam_key = (id(geomA), id(geomB), rls)
+            cached   = self.beam_cache.get(beam_key)
+
+            ei  = mcn[i]
+            idx = np.ix_(ei, ei)
+
+            if cached is not None:
+                k_gl_i, T_sc_i, T_sc_gl_i, T_c_i, T_c_gl_i, R_i, G_i = cached
+            else:
+                # Step 3b. Build beam element matrices
+                C         = self.coord[conn_i[1]] - self.coord[conn_i[0]]
+                beam_data = BeamElement(geomA, geomB, C, rls, enable_logging=False).data
+
+                k_gl_i = beam_data.k_gl
+                k_sc   = beam_data.k_sc_r
+                R_i    = beam_data.Rmatrix
+                G_i    = beam_data.Gmatrix
+
+                # Analytical inverse of G (G = I + nilpotent correction → G⁻¹ = I − correction).
+                # G has nonzero off-diagonal only at [0:3,3:6] and [6:9,9:12];
+                # those blocks square to zero, so (I−C)(I+C) = I exactly.
+                G_inv_i          = np.eye(12)
+                G_inv_i[0:3, 3:6 ] = -G_i[0:3, 3:6 ]
+                G_inv_i[6:9, 9:12] = -G_i[6:9, 9:12]
+
+                T_sc_i    = k_sc @ R_i.T
+                T_sc_gl_i = R_i @ T_sc_i
+                T_c_i     = G_inv_i.T @ k_sc @ R_i.T
+                T_c_gl_i  = R_i @ T_c_i
+
+                self.beam_cache[beam_key] = (
+                    k_gl_i, T_sc_i, T_sc_gl_i, T_c_i, T_c_gl_i, R_i, G_i,
+                )
 
             # Step 4. Assemble
-            ei = mcn[i]
-            idx = np.ix_(ei, ei)
-            
-            # ---- unpacking ----
-            k_gl    = beam_data.k_gl
-            k_sc    = beam_data.k_sc_r
-            R_i     = beam_data.Rmatrix
-            G_i     = beam_data.Gmatrix
-            G_inv_i = np.linalg.solve(G_i, np.eye(12))
-
-            K[idx] += k_gl
+            K[idx] += k_gl_i
             Ei[:, i] = ei
             R[:, :, i] = R_i
             G[:, :, i] = G_i
 
             # Contravariant transformation for SC: obtain internal
             # forces along shear center (SC)
+            #       T_sc    = k @ R^T
             #       Q_sc    = T_sc @ d_gl
-            #       Q_sc_gl = R^{-1} @ T_sc @ d_gl = R @ T_sc @ d_gl
-            T_sc[:, :, i] = k_sc @ R_i.T
-            T_sc_gl[:, :, i] = R_i @ T_sc[:, :, i]
+            #       Q_sc_gl = R^{-T} @ T_sc @ d_gl = R @ T_sc @ d_gl
+            T_sc[:, :, i]     = T_sc_i
+            T_sc_gl[:, :, i]  = T_sc_gl_i
 
             # Contravariant transformation for C: obtain internal
             # forces along centroid (C)
-            #       Q_c    = T @ d_gl
-            #       Q_c_gl = R^{-T} @ T @ d_gl = R @ T @ d_gl
-            T_c[:, :, i] = G_inv_i.T @ k_sc @ R_i.T
-            T_c_gl[:, :, i] = R_i @ T_c[:, :, i]
+            #       T_c    = G^{-T} @ k @ R^T
+            #       Q_c    = T_c @ d_gl
+            #       Q_c_gl = R^{-T} @ T_c @ d_gl = R @ T_c @ d_gl
+            T_c[:, :, i]     = T_c_i
+            T_c_gl[:, :, i]  = T_c_gl_i
 
         self.logger.debug(
             f"K assembled — sparsity "

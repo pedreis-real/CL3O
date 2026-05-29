@@ -45,7 +45,7 @@ import numpy as np
 
 # Constants
 from cl3o.Constants import (
-    DE_HYPERPAR, OPT_LIMS, TOL, N_SEG_T1
+    DE_HYPERPAR, OPT_LIMS, TOL, N_SEG_T1, DEDUP_TOL, STALL_REL_TOL,
 )
 
 # Utilities
@@ -75,17 +75,18 @@ class OptData:
     D           (1,)        Number of design variables          
     X0          (NP, D)     Initial population (seeded LHS-like)
     '''
-    lo    : np.ndarray = field(default_factory=lambda: np.zeros(0))
-    hi    : np.ndarray = field(default_factory=lambda: np.zeros(0))
-    NP    : int        = DE_HYPERPAR['NP']
-    CR    : float      = DE_HYPERPAR['CR']
-    F     : float      = DE_HYPERPAR['F']
-    lmbda : float      = DE_HYPERPAR['lambda']
-    k_max : int        = DE_HYPERPAR['k_max']
-    seed  : int        = DE_HYPERPAR['seed']
-    tol   : int        = DE_HYPERPAR['std_tol']
-    D     : int        = 0
-    X0    : np.ndarray = field(default_factory=lambda: np.zeros((0, 0)))
+    lo             : np.ndarray = field(default_factory=lambda: np.zeros(0))
+    hi             : np.ndarray = field(default_factory=lambda: np.zeros(0))
+    NP             : int        = DE_HYPERPAR['NP']
+    CR             : float      = DE_HYPERPAR['CR']
+    F              : float      = DE_HYPERPAR['F']
+    lmbda          : float      = DE_HYPERPAR['lambda']
+    k_max          : int        = DE_HYPERPAR['k_max']
+    seed           : int        = DE_HYPERPAR['seed']
+    tol            : float      = DE_HYPERPAR['std_tol']
+    stall_patience : int        = DE_HYPERPAR['stall_patience']
+    D              : int        = 0
+    X0             : np.ndarray = field(default_factory=lambda: np.zeros((0, 0)))
 
 
 @dataclass
@@ -224,7 +225,7 @@ class GenerationArchiver:
     the UI can branch on archive layout changes without re-running DE.
     '''
 
-    SCHEMA_VERSION = "1.0"
+    SCHEMA_VERSION = "1.1"
 
     def __init__(
         self,
@@ -249,6 +250,11 @@ class GenerationArchiver:
 
         self.runtime_data = runtime_data
         self.records      : list[dict] = []
+        # Dedup state: every archived distinct X kept in memory so we can
+        # compare incoming candidates by euclidean norm. Indices into this
+        # list line up with `distinct_records`.
+        self._archived_X      : list[np.ndarray] = []
+        self.distinct_records : list[dict]       = []
         self.created_at   = datetime.datetime.now(
             datetime.timezone.utc
         ).isoformat()
@@ -260,34 +266,65 @@ class GenerationArchiver:
     def archive(
         self,
         k : int,
+        X : np.ndarray | None = None,
     ) -> None:
         '''
         Pickle the current state of `self.runtime_data` to gen_<k>.pkl
         and append a scalar summary to self.records.
 
+        If `X` is supplied and matches a previously archived design
+        vector within DEDUP_TOL (euclidean norm), the pickle write is
+        skipped; the new record points to the original file and carries
+        `is_duplicate=True` plus `first_seen_gen`. This lets the UI keep
+        a linear per-generation timeline without bloating disk usage.
+
         The caller (RunOpt._archive_generation) is responsible for
         re-evaluating the best individual before calling this, so that
         runtime_data already reflects the best design of generation k.
 
-        Failures are caught and logged so a transient pickle / IO error
-        cannot kill the DE outer loop; the manifest then simply records
-        fewer snapshots than generations.
-
         Args:
             k: Generation index, zero-based.
+            X: Optional flat design vector of the best individual being
+               archived. Required for dedup; omit to force a write.
         '''
         try:
+            dup_idx = self._find_duplicate(X)
+            if dup_idx is not None:
+                orig = self.distinct_records[dup_idx]
+                rec  = self._summarize(k, orig["file"], self.runtime_data)
+                rec["is_duplicate"]   = True
+                rec["first_seen_gen"] = int(orig["k"])
+                self.records.append(rec)
+                return
+
             fpath = self.gens_dir / f"gen_{k:04d}.pkl"
             with open(fpath, "wb") as f:
                 pickle.dump(self.runtime_data, f, protocol=pickle.HIGHEST_PROTOCOL)
-            self.records.append(
-                self._summarize(k, fpath.name, self.runtime_data)
-            )
+            rec = self._summarize(k, fpath.name, self.runtime_data)
+            rec["is_duplicate"]   = False
+            rec["first_seen_gen"] = int(k)
+            self.records.append(rec)
+            self.distinct_records.append(rec)
+            if X is not None:
+                self._archived_X.append(np.asarray(X, dtype=float).copy())
         except Exception as exc:
             self.logger.warning(
                 f"[CL3O] Snapshot archive failed at gen {k}.\n"
                 f"| reason : {exc!r}"
             )
+
+    def _find_duplicate(
+        self,
+        X : np.ndarray | None,
+    ) -> int | None:
+        '''Return index of a previously archived X within DEDUP_TOL, else None.'''
+        if X is None or not self._archived_X:
+            return None
+        Xv = np.asarray(X, dtype=float).ravel()
+        for i, prev in enumerate(self._archived_X):
+            if prev.shape == Xv.shape and np.linalg.norm(prev - Xv) < DEDUP_TOL:
+                return i
+        return None
 
     # ------------------------------------------------
     # Public methods - final manifest
@@ -319,6 +356,7 @@ class GenerationArchiver:
             "std_f_hist"     : history.std_f .tolist(),
             "feasible_f"     : float(history.feasible_f),
             "snapshots"      : self.records,
+            "distinct_individuals" : self.distinct_records,
         }
         path = self.out_dir / "manifest.json"
         io.write_json(manifest, path)
@@ -398,6 +436,9 @@ class SetupOpt:
         k_max = int  (de_hyperpar.get('k_max',    DE_HYPERPAR['k_max'   ]))
         seed  = int  (de_hyperpar.get('seed',     DE_HYPERPAR['seed'    ]))
         tol   = float(de_hyperpar.get('std_tol',  DE_HYPERPAR['std_tol' ]))
+        stall = int  (de_hyperpar.get(
+            'stall_patience', DE_HYPERPAR['stall_patience']
+        ))
 
         # -------- 1. Validate inputs --------
         if bounds_lo is None or bounds_hi is None:
@@ -437,11 +478,12 @@ class SetupOpt:
             CR        = float(CR),
             F         = float(F),
             lmbda     = float(lmbda),
-            k_max     = int(k_max),
-            seed      = int(seed),
-            tol       = float(tol),
-            D         = D,
-            X0        = X0,
+            k_max          = int(k_max),
+            seed           = int(seed),
+            tol            = float(tol),
+            stall_patience = int(stall),
+            D              = D,
+            X0             = X0,
         )
 
     # ----------------------------------------------------------------
@@ -580,6 +622,7 @@ class RunOpt:
         self.feasible_check = feasible_check
         self.on_generation  = on_generation
         self.tol            = float(setup.data.tol)
+        self.stall_patience = int(setup.data.stall_patience)
         self.run_label      = str(run_label)
         self.history        = HistoryData()
         self.runtime_data   = runtime_data
@@ -701,6 +744,12 @@ class RunOpt:
                     f"(tol={self.tol}, std collapsed)."
                 )
                 break
+            if self._stalled(k, best_f_hist):
+                self.logger.info(
+                    f"DE early-stop at gen {k} "
+                    f"(stall_patience={self.stall_patience} reached)."
+                )
+                break
 
         # -------- 3. Pack history --------
         self.logger.info(
@@ -743,6 +792,25 @@ class RunOpt:
         productive mutations left regardless of best_f trend.
         '''
         return float(std_f_hist[k]) < self.tol
+
+    def _stalled(
+        self,
+        k           : int,
+        best_f_hist : np.ndarray,
+    ) -> bool:
+        '''
+        Declare a stall when the running best fitness has not improved
+        (by more than `STALL_REL_TOL` relative tolerance) for the last
+        `stall_patience` generations. A stalled DE can otherwise drift
+        for many wasted generations before the std-collapse fires.
+        '''
+        if self.stall_patience <= 0 or k < self.stall_patience:
+            return False
+        ref  = float(best_f_hist[k - self.stall_patience])
+        curr = float(best_f_hist[k])
+        # No improvement = curr is not meaningfully smaller than ref.
+        delta = ref - curr
+        return delta <= STALL_REL_TOL * max(1.0, abs(ref))
 
     def _emit_snapshot(
         self,
@@ -811,7 +879,7 @@ class RunOpt:
             return
         best_i = int(np.argmin(f))
         self.setup.evaluator(X[best_i])
-        self.archiver.archive(k)
+        self.archiver.archive(k, X=X[best_i])
 
     def _update_best_feasible(
         self,
@@ -853,10 +921,13 @@ class RunOpt:
         Returns:
             Formatted multi-line string ready for logger.debug().
         '''
+        bar = "-" * 20
         header = (
-            f"gen {k:4d} | best={best_f_hist[k]:.4f} "
-            f"| mean={mean_f_hist[k]:.4f} "
-            f"| std={std_f_hist[k]:.4f}"
+            f"{bar}\n"
+            f"| gen {k:4d} || best={best_f_hist[k]:.4f} "
+            f"|| mean={mean_f_hist[k]:.4f} "
+            f"|| std={std_f_hist[k]:.4f}"
+            f"\n{bar}"
         )
         if self.runtime_data is None:
             return header
@@ -879,17 +950,21 @@ class RunOpt:
             u_max = float(
                 np.max(np.abs(rt.fea_rts.dmatrix[0:3, :, :]))
             )
+            th_max = float(
+                np.max(np.abs(rt.fea_rts.dmatrix[4, :, :]))
+            )
         except Exception:
             return header
         return (
             f"{header}\n"
             f"| mass     : {mass:.4f} kg\n"
-            f"| penalty  : {pen:.4e}\n"
+            f"| penalty  : {pen:.4f} kg\n"
             f"| tsw MS   : {ms_tsw:.4f}  (nv={nv_tsw})\n"
             f"| disp MS  : {ms_disp:.4f}  (nv={nv_disp})\n"
             f"| sigma_max: {sig_max:.2f} MPa\n"
             f"| tau_max  : {tau_max:.2f} MPa\n"
             f"| u_max    : {u_max:.4f} mm"
+            f"| th_max   : {np.degrees(th_max):.2f} deg"
         )
 
     # ----------------------------------------------------------------

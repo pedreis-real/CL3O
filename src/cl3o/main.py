@@ -115,6 +115,10 @@ from cl3o.utils.oppoints import OppData
 from cl3o.optimization.de_opt    import SetupOpt, RunOpt, OptData, HistoryData, OptVars
 from cl3o.optimization.fobjective import BuildEvaluator, RuntimeData
 
+# stdlib (used by run_single)
+import copy as _copy
+import pickle as _pickle
+
 # Materials
 from cl3o.materials.laminate import LaminateData, PlyData
 
@@ -274,6 +278,11 @@ class StaticData:
     inloads_db   : InLoadsData             = field(default=None)
 
     fem_setup    : FemPreprocessData       = field(default=None)
+
+    # Cross-section geometry cache shared across all DE evaluations.
+    # Key: (station_idx, xw1_r, xw2_r, bf*_r, ls1..lf4) — all vars that affect GeomData.
+    # Hit rate grows as population converges; cost on miss is one dict lookup.
+    geom_cache   : dict                    = field(default_factory=dict)
 
     opt_setup    : OptData                 = field(default=None)
     opt_result   : HistoryData             = field(default=None)
@@ -456,6 +465,44 @@ class RunCLEO:
         )
         self.static.opt_result = run
         return run.history
+
+    # ----------------------------------------
+    # Public method - evaluate a single design
+    # ----------------------------------------
+
+    def run_single(
+        self,
+        X        : "list | np.ndarray | OptVars",
+        out_path : Optional[str | Path] = None,
+    ) -> RuntimeData:
+        '''
+        Evaluate one design vector through the full CL3O pipeline,
+        bypassing the DE outer loop. Returns a deep copy of the
+        RuntimeData snapshot produced by the evaluator (so subsequent
+        calls do not mutate it).
+
+        Args:
+            X       : Flat design vector (list / ndarray) or an OptVars
+                container produced by a previous run.
+            out_path: Optional file path. When given, the snapshot is
+                pickled there in the same format as a per-generation
+                archive entry, so the UI can load it standalone.
+        '''
+        if isinstance(X, OptVars):
+            X_flat = BuildEvaluator.encode_optvars(X)
+        else:
+            X_flat = np.asarray(X, dtype=float).ravel()
+
+        self.evaluator(X_flat)
+        snap = _copy.deepcopy(self.runtime)
+
+        if out_path is not None:
+            out_path = Path(out_path)
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(out_path, "wb") as f:
+                _pickle.dump(snap, f, protocol=_pickle.HIGHEST_PROTOCOL)
+
+        return snap
 
     # ----------------------------------------
     # Private method - loads static data
@@ -1071,7 +1118,7 @@ def _resolve_db_specs(
 
 if __name__ == "__main__":
     aircraft_name = "DA62"
-    opt_name      = "OptTeste3"
+    opt_name      = "FirstOpt-DEHYP-default"
 
     # ---------------- Set database specifications ----------------
     # Laminates are discovered by glob over MAT_*_LaminateData.json; the
@@ -1127,6 +1174,8 @@ if __name__ == "__main__":
         opt_name       = opt_name,
         db_specs       = db_specs,
         pipeline_logging = False,
-        de_hyperpar    = {**DE_HYPERPAR, 'NP': 16, 'k_max': 32},
+        de_hyperpar    = {**DE_HYPERPAR, 'NP': 40, 'k_max': 400},
     )
-    runner.run(live_plot = True)
+    runner.run(live_plot = True)        # CAUTION: the live plot raises RAM demand
+
+    # runner.run_single(X=X)

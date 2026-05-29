@@ -209,19 +209,30 @@ def _parse_txt_xflr5(
 # Public API - logging utilities
 # =============================================================================
 
+# Shared disabled logger returned whenever enable_logging=False.
+# Created once at import time; avoids per-instance setLevel / _clear_cache calls
+# that would otherwise cost ~14 ms per candidate in the DE hot path.
+_NULL_LOGGER: logging.Logger = logging.getLogger("cl3o._null")
+_NULL_LOGGER.setLevel(logging.CRITICAL + 1)
+_NULL_LOGGER.propagate = False
+
+
 def setup_logger(
-        obj: str | type, 
+        obj: str | type,
         enable_logging: bool
 ) -> logging.Logger:
     '''
     Sets up logger for the 'obj' class.
-    
+
     Args:
         enable_logging: Enable (True) / Disable (False) logging.
-        
+
     Returns:
         Configured logger instance.
     '''
+    if not enable_logging:
+        return _NULL_LOGGER
+
     if isinstance(obj, str):                    # string
         name = obj
     elif isinstance(obj, type):                 # class
@@ -232,9 +243,9 @@ def setup_logger(
         raise TypeError("obj must be a class, instance, or string")
 
     logger = logging.getLogger(f"{name}_{hex(id(obj))}")
-    logger.setLevel(logging.DEBUG if enable_logging else logging.CRITICAL)
-    
-    if enable_logging and not logger.handlers:
+    logger.setLevel(logging.DEBUG)
+
+    if not logger.handlers:
         handler = logging.StreamHandler()
         formatter = logging.Formatter(
             '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -242,7 +253,7 @@ def setup_logger(
         )
         handler.setFormatter(formatter)
         logger.addHandler(handler)
-    
+
     return logger
 
 
