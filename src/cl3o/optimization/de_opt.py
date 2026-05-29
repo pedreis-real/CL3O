@@ -921,9 +921,9 @@ class RunOpt:
         Returns:
             Formatted multi-line string ready for logger.debug().
         '''
-        bar = "-" * 20
+        bar = "-" * 60
         header = (
-            f"{bar}\n"
+            f"\n{bar}\n"
             f"| gen {k:4d} || best={best_f_hist[k]:.4f} "
             f"|| mean={mean_f_hist[k]:.4f} "
             f"|| std={std_f_hist[k]:.4f}"
@@ -963,7 +963,7 @@ class RunOpt:
             f"| disp MS  : {ms_disp:.4f}  (nv={nv_disp})\n"
             f"| sigma_max: {sig_max:.2f} MPa\n"
             f"| tau_max  : {tau_max:.2f} MPa\n"
-            f"| u_max    : {u_max:.4f} mm"
+            f"| u_max    : {u_max:.4f} mm\n"
             f"| th_max   : {np.degrees(th_max):.2f} deg"
         )
 

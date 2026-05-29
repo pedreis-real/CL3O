@@ -77,19 +77,20 @@ def search_space(distinct_snapshots: list, manifest: dict) -> dict:
 
     if len(Xs) < 2:
         return {
-            "x": [], "y": [], "f": f, "gen": gen, "feasible": feas,
-            "explained_variance": [0.0, 0.0], "n_distinct": len(Xs),
+            "x": [], "y": [], "z": [], "f": f, "gen": gen, "feasible": feas,
+            "explained_variance": [0.0, 0.0, 0.0], "n_distinct": len(Xs),
             "metrics": _global_metrics(manifest),
         }
 
     X = np.vstack(Xs).astype(float)
     mu = X.mean(axis=0)
     Xc = X - mu
-    # Compact SVD for PCA. U·S already gives the 2-D coordinates.
+    # Compact SVD for PCA. U·S gives the projected coordinates.
     U, S, _Vt = np.linalg.svd(Xc, full_matrices=False)
-    coords = U[:, :2] * S[:2]
+    n_pcs = min(3, U.shape[1])
+    coords = U[:, :n_pcs] * S[:n_pcs]
     total = float((S ** 2).sum()) or 1.0
-    ev = [float((S[i] ** 2) / total) if i < S.size else 0.0 for i in range(2)]
+    ev = [float((S[i] ** 2) / total) if i < S.size else 0.0 for i in range(3)]
 
     # Cumulative L2 path length along the trajectory: how far DE travelled.
     dpath = np.linalg.norm(np.diff(X, axis=0), axis=1)
@@ -97,7 +98,8 @@ def search_space(distinct_snapshots: list, manifest: dict) -> dict:
 
     return {
         "x": coords[:, 0].tolist(),
-        "y": coords[:, 1].tolist(),
+        "y": coords[:, 1].tolist() if n_pcs > 1 else [0.0] * len(Xs),
+        "z": coords[:, 2].tolist() if n_pcs > 2 else [0.0] * len(Xs),
         "f": f,
         "gen": gen,
         "feasible": feas,
@@ -179,7 +181,7 @@ def section(rt, i: int) -> dict:
     secs = rt.sections.sec_data
     n = len(secs)
     i = max(0, min(int(i), n - 1))
-    g = secs[i]
+    sec = secs[i]
 
     panels = [{
         "label": p.get("label"),
@@ -187,20 +189,20 @@ def section(rt, i: int) -> dict:
         "t":     _f(p.get("t")),
         "boomA": int(p.get("boomA", -1)),
         "boomB": int(p.get("boomB", -1)),
-    } for p in _g(g, "T2", [])]
+    } for p in _g(sec, "T2", [])]
 
     cells = [{"label": c.get("label"), "pts": np.asarray(c["pts"], float)}
-             for c in _g(g, "T3", [])]
+             for c in _g(sec, "T3", [])]
 
     skin = [{"label": s.get("label"), "pts": np.asarray(s["pts"], float),
-             "t": _f(s.get("t"))} for s in _g(g, "T1", [])]
+             "t": _f(s.get("t"))} for s in _g(sec, "T1", [])]
 
     # Boom (x,z) in the same local frame: each T2 panel runs boomA -> boomB,
     # so panel endpoints land exactly on the booms they connect.
-    boom_A = np.asarray(_g(g, "boom_A", np.zeros(0)), float)
+    boom_A = np.asarray(_g(sec, "boom_A", np.zeros(0)), float)
     nb = int(boom_A.size) or 7
     boom_xy = np.full((nb, 2), np.nan)
-    for p in _g(g, "T2", []):
+    for p in _g(sec, "T2", []):
         pts = np.asarray(p["pts"], float)
         a, b = int(p.get("boomA", -1)), int(p.get("boomB", -1))
         if 0 <= a < nb:
@@ -208,38 +210,40 @@ def section(rt, i: int) -> dict:
         if 0 <= b < nb:
             boom_xy[b] = pts[-1]
 
-    s_xyz = np.asarray(_g(g, "S_XYZ", np.zeros(3)), float)
+    s_xyz = np.asarray(_g(sec, "S_XYZ", np.zeros(3)), float)
     return {
         "station":      i,
         "n_stations":   n,
-        "chord":        _f(_g(g, "chord")),
-        "y":            _f(_g(g, "C", [0, 0, 0])[1]),
+        "chord":        _f(_g(sec, "chord")),
+        "y":            _f(_g(sec, "C", [0, 0, 0])[1]),
         "panels":       panels,
         "cells":        cells,
         "skin":         skin,
         "booms":        {"xy": boom_xy, "A": boom_A,
-                         "labels": list(_g(g, "boom_lbls", []))},
-        "centroid":     [_f(_g(g, "boom_Xc", 0.0)), _f(_g(g, "boom_Zc", 0.0))],
+                         "labels": list(_g(sec, "boom_lbls", []))},
+        "centroid":     [_f(_g(sec, "boom_Xc", 0.0)), _f(_g(sec, "boom_Zc", 0.0))],
         "shear_centre": [_f(s_xyz[0]) if s_xyz.size > 0 else None,
                          _f(s_xyz[2]) if s_xyz.size > 2 else None],
         "props": {
-            "area":    _f(_g(g, "A")),
-            "I_XX":    _f(_g(g, "I_XX")),
-            "I_ZZ":    _f(_g(g, "I_ZZ")),
-            "J":       _f(_g(g, "J")),
-            "A_cells": np.asarray(_g(g, "A_cells", np.zeros(0)), float),
-            "xw1":     _f(_g(g, "xw1")),
-            "xw2":     _f(_g(g, "xw2")),
+            "area":    _f(_g(sec, "A")),
+            "I_XX":    _f(_g(sec, "I_XX")),
+            "I_ZZ":    _f(_g(sec, "I_ZZ")),
+            "I_XZ":    _f(_g(sec, "I_XZ")),
+            "c_rad":   _f(_g(sec, "c_rad")),
+            "J":       _f(_g(sec, "J")),
+            "A_cells": np.asarray(_g(sec, "A_cells", np.zeros(0)), float),
+            "xw1":     _f(_g(sec, "xw1")),
+            "xw2":     _f(_g(sec, "xw2")),
         },
         "fluxes": {
-            "qsX":  np.asarray(_g(g, "qsX_star",  np.zeros(10)), float),
-            "qsZ":  np.asarray(_g(g, "qsZ_star",  np.zeros(10)), float),
-            "qT":   np.asarray(_g(g, "qT_star",   np.zeros(10)), float),
-            "qbX":  np.asarray(_g(g, "qbX_star",  np.zeros(10)), float),
-            "qbZ":  np.asarray(_g(g, "qbZ_star",  np.zeros(10)), float),
-            "qs0X": np.asarray(_g(g, "qs0X_star", np.zeros(3)),  float),
-            "qs0Z": np.asarray(_g(g, "qs0Z_star", np.zeros(3)),  float),
-            "qs0T": np.asarray(_g(g, "qs0T_star", np.zeros(3)),  float),
+            "qsX":  np.asarray(_g(sec, "qsX_star",  np.zeros(10)), float),
+            "qsZ":  np.asarray(_g(sec, "qsZ_star",  np.zeros(10)), float),
+            "qT":   np.asarray(_g(sec, "qT_star",   np.zeros(10)), float),
+            "qbX":  np.asarray(_g(sec, "qbX_star",  np.zeros(10)), float),
+            "qbZ":  np.asarray(_g(sec, "qbZ_star",  np.zeros(10)), float),
+            "qs0X": np.asarray(_g(sec, "qs0X_star", np.zeros(3)),  float),
+            "qs0Z": np.asarray(_g(sec, "qs0Z_star", np.zeros(3)),  float),
+            "qs0T": np.asarray(_g(sec, "qs0T_star", np.zeros(3)),  float),
         },
     }
 
@@ -395,6 +399,16 @@ def info(rt) -> dict:
     tsw = _g(rt, "tsw")
     dsp = _g(rt, "displ")
     sco = _g(rt, "score")
+
+    X_vec = None
+    ov = _g(rt, "optvars")
+    if ov is not None:
+        try:
+            from cl3o.optimization.fobjective import BuildEvaluator
+            X_vec = BuildEvaluator.encode_optvars(ov).tolist()
+        except Exception:
+            pass
+
     return {
         "fitness": {
             "score":       _f(_g(fit, "score")),
@@ -416,4 +430,5 @@ def info(rt) -> dict:
             "panels":  _f(np.nansum(np.asarray(_g(sco, "panels", [])))) if _g(sco, "panels") is not None else None,
             "flanges": _f(np.nansum(np.asarray(_g(sco, "flanges", [])))) if _g(sco, "flanges") is not None else None,
         },
+        "optvars": X_vec,
     }

@@ -99,6 +99,7 @@ class MeshData:
     T_c_gl  : np.ndarray = field(default_factory=lambda: np.zeros((12, 12, 0)))
 
     T_load_ac_sc : np.ndarray = field(default_factory=lambda: np.zeros((6, 6, 0)))
+    skew_nodes   : np.ndarray = field(default_factory=lambda: np.zeros((3, 3, 0)))
 
 
 # ================================================================================
@@ -149,30 +150,6 @@ class MeshBuilder:
         for i in range(self.n):
             coord[i, :] = self.sec_data[i].C
         self.coord = coord
-
-
-    def _get_current_beam_element_data(
-        self,
-        conn_i : np.ndarray,
-    ) -> None:
-        '''
-        Calculate local stiffness matrix.
-        Assumes a prismatic cross-section from endA (base) to endB (tip)
-
-        TODO - USE TAPERED BEAM ELEMENTS (commit to us!)
-        '''
-        geomA = self.sec_data[conn_i[0]]
-        geomB = self.sec_data[conn_i[1]]
-        C = self.coord[conn_i[1]] - self.coord[conn_i[0]]
-        rls_code = 2 * conn_i[2] + conn_i[3]
-        
-        return BeamElement(
-            geomA = geomA,
-            geomB = geomB,
-            coord_vector = C,
-            release_type = rls_code,
-            enable_logging=False,
-        ).data
 
 
     # ----------------------------------------
@@ -227,7 +204,7 @@ class MeshBuilder:
                 R_i    = beam_data.Rmatrix
                 G_i    = beam_data.Gmatrix
 
-                # Analytical inverse of G (G = I + nilpotent correction → G⁻¹ = I − correction).
+                # Analytical inverse of G (G = I + nilpotent correction → G_inv = I − correction).
                 # G has nonzero off-diagonal only at [0:3,3:6] and [6:9,9:12];
                 # those blocks square to zero, so (I−C)(I+C) = I exactly.
                 G_inv_i          = np.eye(12)
@@ -270,14 +247,15 @@ class MeshBuilder:
             f"{100.0 * np.count_nonzero(K) / K.size:.1f}% non-zero"
         )
 
-        # Step 4b. Per-node AC -> SC force-couple translation
-        # F_SC = F_AC ; M_SC = M_AC - [r_AC_to_SC]_x @ F_AC
+        # Step 4b. Per-node matrices: AC->SC force couple and SC->C displacement offset
         T_load_ac_sc = np.zeros((6, 6, n))
+        skew_nodes   = np.zeros((3, 3, n))
         for j in range(n):
-            S = self.sec_data[j].skew_matrix_ac   # 3x3 = [r_AC_to_SC]_x
+            S = self.sec_data[j].skew_matrix_ac
             block = np.eye(6)
             block[3:6, 0:3] = -S
             T_load_ac_sc[:, :, j] = block
+            skew_nodes[:, :, j]   = self.sec_data[j].skew_matrix
 
         # Step 5. Store
         self.data = MeshData(
@@ -297,4 +275,5 @@ class MeshBuilder:
             T_sc_gl = T_sc_gl.astype(float),
             T_c_gl  = T_c_gl.astype(float),
             T_load_ac_sc = T_load_ac_sc.astype(float),
+            skew_nodes   = skew_nodes.astype(float),
         )

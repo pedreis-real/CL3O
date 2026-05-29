@@ -104,8 +104,18 @@ def _load_laminate_catalog() -> dict[str, dict]:
             name = str(raw.get("name", fp.stem))
             plies = list(raw.get("plies", []) or [])
             catalog[str(k)] = {
-                "name"  : name,
-                "family": _infer_family(name, plies),
+                "name"        : name,
+                "family"      : _infer_family(name, plies),
+                "E1"          : raw.get("E1"),
+                "E2"          : raw.get("E2"),
+                "G12"         : raw.get("G12"),
+                "E1_bend"     : raw.get("E1_bend"),
+                "E2_bend"     : raw.get("E2_bend"),
+                "G12_bend"    : raw.get("G12_bend"),
+                "stacking_seq": raw.get("stacking_seq"),
+                "plies"       : plies,
+                "thick"       : raw.get("thick"),
+                "n_plies"     : raw.get("n_plies"),
             }
     _laminate_catalog_cache = catalog
     return catalog
@@ -343,7 +353,7 @@ def _preload_run(run_dir: Path, manifest: dict) -> dict[int, object]:
     cache: dict[int, object] = {}
     for s in manifest.get("snapshots", []) or []:
         k = int(s.get("k", -1))
-        fname = str(s.get("file", f"gen_{k:04d}.pkl"))
+        fname = str(s.get("file", f"gen_{k:04d}.pkl"))  # CAUTION: gen iter k are written :04d by default
         try:
             path = _resolve_pkl(run_dir, fname)
             with open(path, "rb") as fh:

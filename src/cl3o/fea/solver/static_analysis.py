@@ -85,6 +85,7 @@ class FeaResults:
     f           (nf,)           Indices of unconstrained DOFs       -
 
     d           (6n, nc)        Flattened nodal displacements       mm, rad
+    d_c
     dmatrix     (6, n, nc)      Reshaped displacements per node     mm, rad
 
     R           (6n, nc)        Flattened support reactions         N, N*mm
@@ -102,6 +103,7 @@ class FeaResults:
     f  : np.ndarray = field(default_factory=lambda: np.zeros(0, dtype=int))
 
     d       : np.ndarray = field(default_factory=lambda: np.zeros((0, 1)))
+    d_c     : np.ndarray = field(default_factory=lambda: np.zeros((0, 1)))
     dmatrix : np.ndarray = field(default_factory=lambda: np.zeros((6, 0, 1)))
 
     R       : np.ndarray = field(default_factory=lambda: np.zeros((0, 1)))
@@ -219,6 +221,7 @@ class LinearStaticSolver:
             )
 
         d_sc_gl = np.zeros((dof, nc))
+        d_c_gl = np.zeros((dof, nc))
         R = np.zeros((dof, nc))
         dmatrix = np.zeros((6, n, nc))
         Rmatrix = np.zeros((6, n, nc))
@@ -227,7 +230,8 @@ class LinearStaticSolver:
         Q_c     = np.zeros((12, m, nc))
         Q_c_gl  = np.zeros((12, m, nc))
 
-        T_load_ac_sc = self.mesh.T_load_ac_sc   # (6, 6, n)
+        T_load_ac_sc = self.mesh.T_load_ac_sc           # (6, 6, n)
+        S_nodes = self.mesh.skew_nodes.transpose(2, 0, 1)  # (n, 3, 3)
 
         # Pre-translate all load cases from AC to SC in one vectorised pass:
         #   F_SC[6j:6j+6, i] = T_load_ac_sc[:,:,j] @ F_AC[6j:6j+6, i]
@@ -247,6 +251,13 @@ class LinearStaticSolver:
             # Step 4. Displacement vector (global, in SC)
             d_i    = np.zeros((dof))
             d_i[f] = d_free
+
+            # Step 4b. Displacement vector (global, at centroid C)
+            # u_C = u_SC + [r_C_to_SC]_x @ theta;  theta unchanged
+            d_c_i = d_i.copy()
+            d_nd   = d_i.reshape(n, 6)
+            d_c_nd = d_c_i.reshape(n, 6)
+            d_c_nd[:, 0:3] += np.einsum('nij,nj->ni', S_nodes, d_nd[:, 3:6])
 
             # Step 5. Reaction forces
             R_i     = self.mesh.K @ d_i - F_i
@@ -268,6 +279,7 @@ class LinearStaticSolver:
 
             # Step 7. Reshape
             d_sc_gl[:, i] = d_i
+            d_c_gl[:, i]  = d_c_i
             R[:, i] = R_i
             dmatrix[:, :, i] = d_i.reshape(6, n, order='F')
             Rmatrix[:, :, i] = R_i.reshape(6, n, order='F')
@@ -280,6 +292,7 @@ class LinearStaticSolver:
             nf = nf,
             f = f.astype(int),
             d = d_sc_gl.astype(float),
+            d_c = d_c_gl.astype(float),
             dmatrix = dmatrix.astype(float),
             R = R.astype(float),
             Rmatrix = Rmatrix.astype(float),

@@ -299,9 +299,10 @@ class BuildEvaluator:
             bf3_root = bf3_root, bf4_root = bf4_root,
             tpr = tpr,
             bf1 = bf1, bf2 = bf2, bf3 = bf3, bf4 = bf4,
-            ls1 = ls1, ls2 = ls2,
-            lw1 = lw1, lw2 = lw2,
-            lf1 = lf1, lf2 = lf2, lf3 = lf3, lf4 = lf4,
+            ls1 = np.floor(ls1), ls2 = np.floor(ls2),
+            lw1 = np.floor(lw1), lw2 = np.floor(lw2),
+            lf1 = np.floor(lf1), lf2 = np.floor(lf2),
+            lf3 = lf3, lf4 = lf4,
         )
     
     # ----------------------------------------
@@ -363,7 +364,7 @@ class BuildEvaluator:
                 sections       = self.rt.sections,
                 element_idx    = self.rt.mesh.conn[:, :2],
                 fea_results    = self.rt.fea_rts,
-                use_local = False,
+                # use_local = False,
                 enable_logging = log,
             )
             self.rt.stress = stress.data

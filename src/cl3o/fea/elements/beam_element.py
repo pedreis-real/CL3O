@@ -86,6 +86,7 @@ class BeamData:
     R_a         (3, 3)      Rotation matrix along w                     - [rad]
     R_b         (3, 3)      Rotation matrix along y                     - [rad]
     R_c         (3, 3)      Rotation matrix along x                     - [rad]
+    c_rad
     Rmatrix     (12, 12)    DOF rotation matrix (local to global)       - [rad]
     '''
     L   : float = 0.0
@@ -104,6 +105,7 @@ class BeamData:
     R_a     : np.ndarray = field(default_factory=lambda: np.eye(3))
     R_b     : np.ndarray = field(default_factory=lambda: np.eye(3))
     R_c     : np.ndarray = field(default_factory=lambda: np.eye(3))
+    c_rad   : float = 0.0
     Rmatrix : np.ndarray = field(default_factory=lambda: np.eye(12))
 
 
@@ -142,7 +144,7 @@ class BeamElement:
 
         self.C = coord_vector
         self.a, self.b, self.L = mthu.cart2sph(self.C)
-        self.c = geomA.theta_P
+        self.c = geomA.c_rad
 
         self.E1  = geomA.E1_eq        # membrane: used for EA
         self.E2  = geomA.E2_eq        # membrane: used for EA
@@ -304,6 +306,17 @@ class BeamElement:
         principal axis (to match the assignment self.Iy = I_2 in __init__).
         Subtracting pi/2 rotates local-y from y' to the minor direction.
 
+        The principal angle theta_P is defined only modulo pi, so the minor-axis
+        (local y) direction is ambiguous up to a 180deg flip. For a wing section
+        I_XX < I_ZZ drives theta_P to ~+-90deg, and the (often noise-level) sign
+        of I_XZ then decides whether it snaps to +90 or -90 -- flipping local y
+        and inverting every recovered local bending moment. We resolve the
+        ambiguity by pinning local y to point toward the trailing edge (+X), so
+        the local frame and the Q_sc / Q_c moment signs stay stable along the
+        span and consistent with the global X-Z stress-recovery frame. Flipping
+        local y by 180deg co-flips local z (rotation about local x), leaving the
+        global stiffness k_gl invariant.
+
         Return:
             R_a : Rotation matrix along centroidal axis w == z''
             R_b : Rotation matrix along intermediate axis y'
@@ -311,9 +324,10 @@ class BeamElement:
         '''
         a, b, c = self.a, self.b, self.c
 
-        R_a, R_b, R_c = mthu.rot3(a), mthu.rot2(b), mthu.rot1(c - 0.5*np.pi)
+        R_a, R_b, R_c = mthu.rot3(a), mthu.rot2(b), mthu.rot3(c)
 
         gamma_rot = R_c @ R_b @ R_a
+
         T_mat = np.kron(np.eye(4), gamma_rot)
 
         return R_a, R_b, R_c, T_mat
@@ -364,5 +378,6 @@ class BeamElement:
             R_a      = R_a.astype(float),
             R_b      = R_b.astype(float),
             R_c      = R_c.astype(float),
+            c_rad    = self.c,
             Rmatrix  = R_mat.astype(float),
         )

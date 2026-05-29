@@ -444,6 +444,15 @@ def write_plies() -> None:
         rho   = 128e-12,
     )
 
+    # Aramid Honeycomb (e-composites)
+    Ply(
+        name  = "Aramid-Honeycomb-PN1-Nomex",
+        thick = 3.0,
+        angle = 0,
+        core  = True,
+        rho   = 48e-12,
+    )
+
     # -------- Standalone multi-angle variants (not in any laminate) --------
     # Defined explicitly so a clean regen preserves them. AS4--3501-6-UD is
     # an alternate AS4 set (distinct from CFRP-AS4--3501-6); Kevlar49--Epoxy
@@ -480,6 +489,21 @@ _CFRP_AS4 = dict(
     Xt=2280, Xc=1725, Yt=57, Yc=228, S=76,
 )
 
+_CFRP_IM7 = dict(
+        name  = "CFRP-IM7--977-3",
+        thick = 0.125,
+        rho   = 1.61e-9,
+        Ex    = 190000,
+        Ey    = 9900,
+        Es    = 7800,
+        nux   = 0.35,
+        Xt    = 3250,
+        Xc    = 1590,
+        Yt    = 62,
+        Yc    = 200,
+        S     = 75,
+    )
+
 _CFRP_T300 = dict(
     name="CFRP-T300--5208", thick=0.125, rho=1.60e-9,
     Ex=181000, Ey=10300, Es=7170, nux=0.28,
@@ -492,10 +516,11 @@ _GFRP = dict(
     Xt=1062, Xc=610, Yt=31, Yc=118, S=72,
 )
 
-_CORE_H80     = dict(name="Divinycell-H80",         rho=80e-12)
-_CORE_H100    = dict(name="Divinycell-H100",        rho=100e-12)
-_CORE_H160    = dict(name="Divinycell-H160",        rho=160e-12)
-_CORE_AL_HC   = dict(name="Al-Honeycomb-PAMG-5052", rho=130e-12)
+_CORE_BALSA   = dict(name="Balsa-CK57",                 rho=150e-12)
+_CORE_FOAM_HC = dict(name="Foam-Honeycomb-Style-20",    rho=128e-12)
+_CORE_PN1_HC_T5 = dict(name="Aramid-Honeycomb-PN1-Nomex", rho=48e-12)
+_CORE_H80     = dict(name="Divinycell-H100",            rho=80e-12)
+_CORE_AL_HC   = dict(name="Al-Honeycomb-PAMG-5052",     rho=130e-12)
 
 _CORE_THICK = 5.0   # [mm] - sandwich core ply thickness
 
@@ -552,44 +577,42 @@ def write_laminates() -> None:
     # -------- Group A - Boom / flange laminates --------
     # 16 plies = 2.00 mm | 24 plies = 3.00 mm
 
-    _build("MAT_CFRP_UD16",   lambda m: _stack(m, _CFRP_AS4, [0]*16))
-    _build("MAT_CFRP_UD24",   lambda m: _stack(m, _CFRP_AS4, [0]*24))
-    _build("MAT_CFRP_HARD16", lambda m: _stack(m, _CFRP_AS4,
-        # 12 x 0 deg + 4 x +/-45 deg; symmetric & balanced
-        [0, 0, 0, 0, 0, 0, 45, -45,
-         -45, 45, 0, 0, 0, 0, 0, 0]))
-    _build("MAT_CFRPHM_UD16", lambda m: _stack(m, _CFRP_T300, [0]*16))
+    _build("MAT_CFRP_AS4_UD24",   lambda m: _stack(m, _CFRP_AS4, [0]*24))
+    _build("MAT_CFRP_IM7_UD24",   lambda m: _stack(m, _CFRP_IM7, [0]*24))
 
     # -------- Group B - Skin laminates --------
     # 16 plies = 2.00 mm | 24 plies = 3.00 mm
 
-    _build("MAT_CFRP_CRS16",  lambda m: _stack(m, _CFRP_AS4,
-        # Cross-ply: alternating 0/90; symmetric & balanced
-        [0, 90] * 8))
-    _build("MAT_CFRP_CRS24",  lambda m: _stack(m, _CFRP_AS4,
-        [0, 90] * 12))
-    _build("MAT_CFRP_QI16",   lambda m: _stack(m, _CFRP_AS4,
-        # Quasi-isotropic: 0/45/-45/90 repeated; symmetric & balanced
-        [0, 45, -45, 90, 0, 45, -45, 90,
-         90, -45, 45, 0, 90, -45, 45, 0]))
-    _build("MAT_CFRP_QI24",   lambda m: _stack(m, _CFRP_AS4,
-        [0, 45, -45, 90] * 6))
-    _build("MAT_GFRP_CRS16",  lambda m: _stack(m, _GFRP,
-        [0, 90] * 8))
+    # Cross-ply: alternating 0/90; symmetric & balanced
+    cp16_stack = [0, 90, 0, 90, 0, 90, 0, 90,
+                  90, 0, 90, 0, 90, 0, 90, 0]
+    cp24_stack = [0, 90, 0, 90, 0, 90, 0, 90, 0, 90, 0, 90,
+                  90, 0, 90, 0, 90, 0, 90, 0, 90, 0, 90, 0]
+    
+    # Quasi-isotropic: 0/45/-45/90 repeated; symmetric & balanced
+    qi16_stack = [0, 45, -45, 90, 0, 45, -45, 90,
+                  90, -45, 45, 0, 90, -45, 45, 0]
+    qi24_stack = [0, 45, -45, 90, 0, 45, -45, 90, 0, 45, -45, 90,
+                  90, -45, 45, 0, 90, -45, 45, 0, 90, -45, 45, 0]
+    
+    # Pure angle-ply; symmetric & balanced
+    ap_stack = [45, -45, 45, -45, 45, -45, 45, -45,
+               -45, 45, -45, 45, -45, 45, -45, 45]
+    ap24_stack = [45, -45, 45, -45, 45, -45, 45, -45, 45, -45, 45, -45,
+                  -45, 45, -45, 45, -45, 45, -45, 45, -45, 45, -45, 45]
+    
+    # Cross-ply: alternating 0/90; symmetric & balanced
+    _build("MAT_CFRP_AS4_CRS24",  lambda m: _stack(m, _CFRP_AS4, cp24_stack))
+    _build("MAT_CFRP_IM7_CRS24",  lambda m: _stack(m, _CFRP_IM7, cp24_stack))
+    _build("MAT_CFRP_AS4_QI24",   lambda m: _stack(m, _CFRP_AS4, qi24_stack))
+    _build("MAT_CFRP_IM7_QI24",   lambda m: _stack(m, _CFRP_IM7, qi24_stack))
 
     # -------- Group C - Web laminates --------
     # 16 plies = 2.00 mm | 24 plies = 3.00 mm
 
-    _build("MAT_CFRP_AP16",     lambda m: _stack(m, _CFRP_AS4,
-        # Pure angle-ply; symmetric & balanced
-        [45, -45] * 8))
-    _build("MAT_CFRP_AP24",     lambda m: _stack(m, _CFRP_AS4,
-        [45, -45] * 12))
-    _build("MAT_CFRP_APHARD16", lambda m: _stack(m, _CFRP_AS4,
-        # Angle-ply hard: 8 x +/-45 + 8 x 0; symmetric & balanced
-        [45, -45, 0, 0, 0, 0, -45, 45,
-         45, -45, 0, 0, 0, 0, -45, 45]))
-
+    _build("MAT_CFRP_AS4_AP24",     lambda m: _stack(m, _CFRP_AS4, ap24_stack))
+    _build("MAT_CFRP_IM7_AP24",     lambda m: _stack(m, _CFRP_IM7, ap24_stack))
+    
     # -------- Group D - Sandwich laminates --------
     # All facings use CFRP-AS4; core adds >= 5 mm --> total >= 6.0 mm.
 
@@ -626,16 +649,13 @@ def write_laminates() -> None:
         return builder
 
     # 0-dominant sandwiches (Groups A/B roles)
-    _build("MAT_SAND_UD_H100",  _ud_sandwich(_CORE_H100))
-    _build("MAT_SAND_CRS_H80",  _crs_sandwich(_CORE_H80))
-    _build("MAT_SAND_CRS_H100", _crs_sandwich(_CORE_H100))
-    _build("MAT_SAND_QI_H80",   _qi_sandwich(_CORE_H80))
-    _build("MAT_SAND_QI_H100",  _qi_sandwich(_CORE_H100))
-    _build("MAT_SAND_QI_H160",  _qi_sandwich(_CORE_H160))
+    _build("MAT_SAND-HC_UD",  _ud_sandwich(_CORE_PN1_HC_T5))
+    _build("MAT_SAND-HC_CRS", _crs_sandwich(_CORE_PN1_HC_T5))
+    _build("MAT_SAND-HC_QI",  _qi_sandwich(_CORE_PN1_HC_T5))
 
     # +/-45-dominant sandwiches (Group C role, buckling-critical webs)
-    _build("MAT_SAND_AP_H80",   _ap_sandwich(_CORE_H80))
-    _build("MAT_SAND_AP_HC",    _ap_sandwich(_CORE_AL_HC))
+    _build("MAT_SAND-HC_AP",  _ap_sandwich(_CORE_PN1_HC_T5))
+    _build("MAT_SAND-HC_AP",   _ap_sandwich(_CORE_PN1_HC_T5))
 
 
 # ============================================================================ #

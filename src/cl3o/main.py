@@ -1118,7 +1118,9 @@ def _resolve_db_specs(
 
 if __name__ == "__main__":
     aircraft_name = "DA62"
-    opt_name      = "FirstOpt-DEHYP-default"
+    # opt_name = "Test-Single"
+    # opt_name = "Test-LocalFrame-6"
+    opt_name      = "3rdOpt-DEHYP-default"
 
     # ---------------- Set database specifications ----------------
     # Laminates are discovered by glob over MAT_*_LaminateData.json; the
@@ -1174,8 +1176,8 @@ if __name__ == "__main__":
         opt_name       = opt_name,
         db_specs       = db_specs,
         pipeline_logging = False,
-        de_hyperpar    = {**DE_HYPERPAR, 'NP': 40, 'k_max': 400},
+        de_hyperpar    = DE_HYPERPAR #{**DE_HYPERPAR, 'NP': 16, 'k_max': 20},
     )
-    runner.run(live_plot = True)        # CAUTION: the live plot raises RAM demand
+    runner.run(live_plot = False)        # CAUTION: the live plot raises RAM demand
 
     # runner.run_single(X=X)

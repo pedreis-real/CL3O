@@ -94,6 +94,7 @@ class GeomData:
     I_1             (1,)        Principal inertia 1                     mm^4
     I_2             (1,)        Principal inertia 2                     mm^4
     theta_P         (1,)        Principal axis angle                    rad
+    c_rad           (1,)        Beam-frame rotation angle (corrected)   rad
     J               (1,)        Torsional constant                      mm^4
     A_cells         (3,)        Enclosed areas of cells I-III           mm^2
     delta_mat       (3, 3)      Cell flexibility matrix                 1/mm
@@ -159,6 +160,7 @@ class GeomData:
     I_1     : float = 0.0
     I_2     : float = 0.0
     theta_P : float = 0.0
+    c_rad   : float = 0.0
     J       : float = 0.0
 
     A_cells : np.ndarray = field(default_factory=lambda: np.zeros(3))
@@ -1198,6 +1200,7 @@ class GeomPropCalculator:
             I_1       = self.I_1,
             I_2       = self.I_2,
             theta_P   = self.theta_P,
+            c_rad     = self.c_rad,
             A_cells   = self.A_cells,
             J         = self.J,
             G_REF     = self.G_REF,
@@ -1319,6 +1322,7 @@ class GeomPropCalculator:
         self.I_1     = boom_data.I_1
         self.I_2     = boom_data.I_2
         self.theta_P = boom_data.theta_P
+        self.c_rad   = self.theta_P + (-(np.sign(self.theta_P) * 0.5 * np.pi))
         if self.recalculate_props:
             self.A = float(np.sum(self.boom_A))
 

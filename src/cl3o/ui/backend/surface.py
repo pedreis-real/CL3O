@@ -198,10 +198,13 @@ def build_scene(
             r = lrow[s]
             xle, zle = float(LE[r, 0]), float(LE[r, 2])
             d = dmat[:, node_i, lc]
+            _deg = 180.0 / np.pi
             disp["u"][s], disp["v"][s], disp["w"][s] = d[0], d[1], d[2]
-            disp["rx"][s], disp["ry"][s], disp["rz"][s] = d[3], d[4], d[5]
-            disp["t"][s] = float(np.linalg.norm(d[0:3]))
-            disp["r"][s] = float(np.linalg.norm(d[3:6]))
+            disp["rx"][s] = float(d[3]) * _deg
+            disp["ry"][s] = float(d[4]) * _deg
+            disp["rz"][s] = float(d[5]) * _deg
+            disp["t"][s]  = float(np.linalg.norm(d[0:3]))
+            disp["r"][s]  = float(np.linalg.norm(d[3:6])) * _deg
             rib = _apply_disp(rib, np.array([xle, y, zle]), d, scale)
         verts[:, s] = rib
 
@@ -304,6 +307,13 @@ def build_stress_surface(rt, wing, lc: int = 0, end: str = "avg") -> dict:
     _FLUX_KEYS = ("qsX_star", "qsZ_star", "qT_star", "qbX_star", "qbZ_star")
     _FLUX_OUT  = ("flux_qsX", "flux_qsZ", "flux_qT", "flux_qbX", "flux_qbZ")
 
+    # Pre-load local shear-centre internal forces (12, m, nc) so that each
+    # influence coefficient can be scaled by the actual applied force.
+    # Rows: 0=N, 1=Sy, 2=Sz, 3=T, 4=My, 5=Mz  (then +6 for end-B with sign=-1).
+    Qsc_arr = np.asarray(rt.fea_rts.Q_sc, float)
+    nc_q    = Qsc_arr.shape[2] if Qsc_arr.ndim == 3 else 1
+    lc_q    = max(0, min(int(lc), nc_q - 1))
+
     verts: list = []
     fi, fj, fk, fc = [], [], [], []
     flux_cols: dict[str, list] = {k: [] for k in _FLUX_OUT}
@@ -314,16 +324,34 @@ def build_stress_surface(rt, wing, lc: int = 0, end: str = "avg") -> dict:
         y_b = float(sec[node_b].C[1])
         n_panels_a = len(sec[node_a].T2)
         n_panels_b = len(sec[node_b].T2)
+
+        # Per-element internal forces: end-A (sign +1, off 0) and
+        # end-B (sign -1, off 6) following _extract_internal_forces convention.
+        SX_a = float(Qsc_arr[1, e, lc_q]);   SX_b = -float(Qsc_arr[7, e, lc_q])
+        SZ_a = float(Qsc_arr[2, e, lc_q]);   SZ_b = -float(Qsc_arr[8, e, lc_q])
+        T_a  = float(Qsc_arr[3, e, lc_q]);   T_b  = -float(Qsc_arr[9, e, lc_q])
+        _force_ends: dict[str, tuple[float, float]] = {
+            "qsX_star": (SX_a, SX_b),
+            "qsZ_star": (SZ_a, SZ_b),
+            "qT_star":  (T_a,  T_b),
+            "qbX_star": (SX_a, SX_b),
+            "qbZ_star": (SZ_a, SZ_b),
+        }
+
         for jp in range(min(n_panels_a, n_panels_b)):
             pts_a = np.asarray(sec[node_a].T2[jp]["pts"], float)  # (na, 2)
             pts_b = np.asarray(sec[node_b].T2[jp]["pts"], float)  # (nb, 2)
             t = float(tau[e, jp, lc])
 
-            # Select flux over the two end-stations.
+            # Multiply each influence coefficient (1/mm) by the actual
+            # applied force (N) to obtain the true shear flow (N/mm).
             flux_face: dict[str, float] = {}
             for fk_in, fk_out in zip(_FLUX_KEYS, _FLUX_OUT):
-                va = float(np.asarray(getattr(sec[node_a], fk_in, np.zeros(10)))[jp])
-                vb = float(np.asarray(getattr(sec[node_b], fk_in, np.zeros(10)))[jp])
+                ic_a = float(np.asarray(getattr(sec[node_a], fk_in, np.zeros(10)))[jp])
+                ic_b = float(np.asarray(getattr(sec[node_b], fk_in, np.zeros(10)))[jp])
+                fa, fb = _force_ends[fk_in]
+                va = ic_a * fa
+                vb = ic_b * fb
                 if end == "A":
                     flux_face[fk_out] = va
                 elif end == "B":
@@ -361,25 +389,18 @@ def build_stress_surface(rt, wing, lc: int = 0, end: str = "avg") -> dict:
                 for fk_out in _FLUX_OUT:
                     flux_cols[fk_out] += [flux_face[fk_out], flux_face[fk_out]]
 
-    # Limits always span both ends so the colorbar stays fixed across A/B/avg.
+    # Tau abs spans both A and B ends so the colorbar is stable across A/B/avg.
     tau_both = np.concatenate([tauA_arr[:, :, lc], tauB_arr[:, :, lc]])
     tau_fin  = tau_both[np.isfinite(tau_both)]
     tau_abs  = float(np.nanmax(np.abs(tau_fin))) if tau_fin.size else 1.0
 
+    # Flux abs derived from the SAME accumulated per-face values used for display,
+    # so the colorbar range always matches what is actually plotted.
     flux_abs: dict[str, float] = {}
-    for fk_in, fk_out in zip(_FLUX_KEYS, _FLUX_OUT):
-        vals_a = np.array([
-            float(np.asarray(getattr(sec[int(conn[e, 0])], fk_in, np.zeros(10)))[jp])
-            for e in left_e
-            for jp in range(min(len(sec[int(conn[e, 0])].T2), len(sec[int(conn[e, 1])].T2)))
-        ], dtype=float)
-        vals_b = np.array([
-            float(np.asarray(getattr(sec[int(conn[e, 1])], fk_in, np.zeros(10)))[jp])
-            for e in left_e
-            for jp in range(min(len(sec[int(conn[e, 0])].T2), len(sec[int(conn[e, 1])].T2)))
-        ], dtype=float)
-        combined = np.concatenate([vals_a, vals_b])
-        flux_abs[fk_out] = float(np.nanmax(np.abs(combined))) if combined.size else 1.0
+    for fk_out in _FLUX_OUT:
+        vals = np.array(flux_cols[fk_out], dtype=float)
+        fin  = vals[np.isfinite(vals)]
+        flux_abs[fk_out] = float(np.nanmax(np.abs(fin))) if fin.size else 1.0
 
     # -------- Boom rods coloured by normal stress sigma --------
     sig_both   = np.concatenate([sigA_arr[:, :, lc], sigB_arr[:, :, lc]])

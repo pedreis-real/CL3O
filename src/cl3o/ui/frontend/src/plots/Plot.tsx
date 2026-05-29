@@ -81,6 +81,9 @@ export function meshTrace(m: Mesh3D, opts: MeshOpts): Data {
       t.colorbar = {
         title: { text: opts.colorbarTitle ?? "" },
         thickness: 12,
+        tickmode: "auto",
+        nticks: 5,
+        tickformat: ".3g",
         ...(opts.colorbarY != null && { y: opts.colorbarY }),
         ...(opts.colorbarLen != null && { len: opts.colorbarLen }),
       };

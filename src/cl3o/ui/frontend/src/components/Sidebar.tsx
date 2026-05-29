@@ -38,10 +38,10 @@ const DISP_COMPONENTS: [string, string][] = [
   ["v",  "T2 · v (mm)"],
   ["w",  "T3 · w (mm)"],
   ["t",  "Total Translation"],
-  ["rx", "R1 · θx (rad)"],
-  ["ry", "R2 · θy (rad)"],
-  ["rz", "R3 · θz (rad)"],
-  ["r",  "Total Rotation"],
+  ["rx", "R1 · θx (deg)"],
+  ["ry", "R2 · θy (deg)"],
+  ["rz", "R3 · θz (deg)"],
+  ["r",  "Total Rotation (deg)"],
 ];
 
 export function Sidebar() {
@@ -109,6 +109,10 @@ export function Sidebar() {
         </section>
       )}
 
+      {view === "geometry" && s.info?.optvars && s.info.optvars.length > 0 && (
+        <OptVarsPanel optvars={s.info.optvars} />
+      )}
+
       {view === "section" && (
         <section className="panel">
           <h4>Cross-section</h4>
@@ -127,9 +131,18 @@ export function Sidebar() {
           <Row label="area" value={fmt(s.section?.props.area, 1, "mm²")} />
           <Row label={<>I<sub>XX</sub></>} value={fmt(s.section?.props.I_XX, 2, "mm⁴")} />
           <Row label={<>I<sub>ZZ</sub></>} value={fmt(s.section?.props.I_ZZ, 2, "mm⁴")} />
+          <Row label={<>I<sub>XZ</sub></>} value={fmt(s.section?.props.I_XZ, 2, "mm⁴")} />
           <Row label="J" value={fmt(s.section?.props.J, 2, "mm⁴")} />
           <Row label="aft spar" value={fmtPct(s.section?.props.xw1)} />
           <Row label="rear spar" value={fmtPct(s.section?.props.xw2)} />
+          <label className="control inline-toggle">
+            <input
+              type="checkbox"
+              checked={s.showSectionAxes}
+              onChange={(e) => s.setShowSectionAxes(e.target.checked)}
+            />
+            show axes
+          </label>
         </section>
       )}
 
@@ -294,5 +307,25 @@ function LoadcaseSelect() {
         ))}
       </select>
     </label>
+  );
+}
+
+function OptVarsPanel({ optvars }: { optvars: number[] }) {
+  const [open, setOpen] = React.useState(false);
+  return (
+    <section className="panel">
+      <div
+        style={{ display: "flex", justifyContent: "space-between", alignItems: "center", cursor: "pointer" }}
+        onClick={() => setOpen((v) => !v)}
+      >
+        <h4 style={{ margin: 0 }}>Design vector X (D={optvars.length})</h4>
+        <span style={{ color: "var(--text-dim)", fontSize: 11 }}>{open ? "▲" : "▼"}</span>
+      </div>
+      {open && (
+        <pre className="optvars-pre">
+          {optvars.map((v, i) => `x[${String(i).padStart(2, "0")}] = ${v.toFixed(5)}`).join("\n")}
+        </pre>
+      )}
+    </section>
   );
 }

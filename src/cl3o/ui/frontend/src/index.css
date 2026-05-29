@@ -198,12 +198,89 @@ select {
 }
 .geo-layup-legend__row { display: flex; align-items: center; gap: 7px; padding: 2px 0; }
 .geo-layup-legend__swatch { width: 10px; height: 10px; border-radius: 2px; flex-shrink: 0; }
+.geo-layup-legend__idx { font-size: 10px; color: var(--text-dim); flex-shrink: 0; min-width: 20px; }
 .geo-layup-legend__name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); font-size: 11px; }
+
+/* ------------------------------------------------------------------ Layup table button (top-left overlay in Geometry view) */
+.layup-table-btn {
+  position: absolute; top: 12px; left: 12px; z-index: 10;
+  background: var(--accent); border: 1px solid transparent;
+  border-radius: var(--radius-sm); padding: 5px 14px;
+  color: #fff; font-size: 11px; font-weight: 600; cursor: pointer;
+  backdrop-filter: blur(4px); transition: background 0.12s;
+  box-shadow: 0 2px 8px rgba(79,140,255,0.35);
+}
+.layup-table-btn:hover { background: #3a7af0; }
+
+/* ------------------------------------------------------------------ Layup table panel (full-width overlay) */
+.layup-table-panel {
+  position: absolute; top: 44px; left: 12px; right: 12px; z-index: 20;
+  background: rgba(14, 18, 28, 0.96); border: 1px solid var(--border);
+  border-radius: var(--radius); backdrop-filter: blur(6px);
+  max-height: 55%; display: flex; flex-direction: column;
+}
+.layup-table-header {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 8px 12px; border-bottom: 1px solid var(--border);
+  font-size: 12px; font-weight: 600; color: var(--text); flex-shrink: 0;
+}
+.layup-table-close {
+  background: transparent; border: 0; color: var(--text-dim);
+  cursor: pointer; font-size: 14px; line-height: 1; padding: 0 2px;
+}
+.layup-table-close:hover { color: var(--text); }
+.layup-table-scroll { overflow: auto; flex: 1; }
+.layup-table {
+  width: 100%; border-collapse: collapse; font-size: 11px; white-space: nowrap;
+}
+.layup-table th {
+  position: sticky; top: 0; background: rgba(26, 34, 48, 0.98);
+  color: var(--text-dim); font-size: 10px; text-transform: uppercase;
+  letter-spacing: 0.4px; padding: 5px 8px; border-bottom: 1px solid var(--border);
+  text-align: right; font-weight: 600;
+}
+.layup-table th:first-child, .layup-table th:nth-child(2),
+.layup-table th:last-child, .layup-table th:nth-last-child(2) { text-align: left; }
+.layup-table td { padding: 4px 8px; border-bottom: 1px solid rgba(35,44,61,0.5); text-align: right; color: var(--text); }
+.layup-table td.idx { color: var(--text-dim); text-align: left; }
+.layup-table td.name { color: var(--accent); text-align: left; max-width: 140px; overflow: hidden; text-overflow: ellipsis; }
+.layup-table td.stack { color: var(--accent-2); text-align: left; }
+.layup-table td.plies { text-align: left; color: var(--text-dim); max-width: 320px; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
+.layup-table td.plies:hover { color: var(--text); }
+.layup-table td.plies.plies-expanded { white-space: normal; max-width: none; overflow: visible; text-overflow: unset; word-break: break-all; }
+.layup-table tr:hover td { background: rgba(79,140,255,0.05); }
+
+/* ------------------------------------------------------------------ Optimization vector display */
+.optvars-pre {
+  font-family: "Cascadia Code", "Fira Code", monospace; font-size: 10px;
+  color: var(--text-dim); line-height: 1.6; overflow-y: auto;
+  max-height: 200px; margin: 8px 0 0; white-space: pre;
+  background: var(--bg); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); padding: 6px 8px;
+}
 
 /* ------------------------------------------------------------------ Flux disclaimer */
 .flux-disclaimer { margin-top: 12px; padding: 8px; background: rgba(79,140,255,0.05); border: 1px solid var(--border); border-radius: var(--radius-sm); }
 .disclaimer-text { font-size: 10px; color: var(--text-dim); line-height: 1.5; margin: 0 0 8px 0; }
 .flux-svg { width: 100%; display: block; }
+
+/* ------------------------------------------------------------------ Plot toolbar (tab/button row above plot area) */
+.plot-toolbar {
+  display: flex; align-items: center; gap: 4px; flex-shrink: 0;
+  padding: 4px 8px; border-bottom: 1px solid var(--border);
+  background: var(--bg-panel);
+}
+.plot-toolbar button {
+  border: 0; background: transparent; color: var(--text-dim);
+  padding: 4px 12px; border-radius: var(--radius-sm); cursor: pointer;
+  font-size: 12px; transition: background 0.12s, color 0.12s;
+}
+.plot-toolbar button:hover { color: var(--text); }
+.plot-toolbar button.active { background: var(--accent); color: #fff; }
+.plot-toolbar select {
+  background: var(--bg-elev); color: var(--text); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); padding: 3px 6px; font-size: 12px;
+}
 
 /* ------------------------------------------------------------------ Plot states */
 .plot-loading, .plot-error { display: flex; align-items: center; justify-content: center; height: 100%; color: var(--text-dim); }

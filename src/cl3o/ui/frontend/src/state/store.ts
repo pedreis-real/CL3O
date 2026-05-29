@@ -32,6 +32,9 @@ interface AppState {
   forceComp: string;
   nLoadcases: number;
 
+  // section tab controls
+  showSectionAxes: boolean;
+
   // stress tab controls
   stressMode: "stress" | "flux";
 
@@ -73,6 +76,7 @@ interface AppState {
   setForceFrame: (fr: "local" | "global") => void;
   setForceComp: (c: string) => void;
   setNLoadcases: (n: number) => void;
+  setShowSectionAxes: (b: boolean) => void;
   setStressMode: (m: "stress" | "flux") => void;
   setMiscTab: (t: "convergence" | "search" | "sensitivity") => void;
   setDistinctIndex: (i: number) => void;
@@ -104,6 +108,7 @@ export const useStore = create<AppState>((set, get) => ({
   forceFrame: "local",
   forceComp: "Mz",
   nLoadcases: 1,
+  showSectionAxes: true,
   stressMode: "stress",
   miscTab: "convergence",
   distinctIndividuals: [],
@@ -178,6 +183,7 @@ export const useStore = create<AppState>((set, get) => ({
   }),
   setForceComp: (c) => set({ forceComp: c }),
   setNLoadcases: (n) => set({ nLoadcases: n }),
+  setShowSectionAxes: (b) => set({ showSectionAxes: b }),
   setStressMode: (m) => set({ stressMode: m }),
   setMiscTab: (t) => set({ miscTab: t }),
   setDistinctIndex: (i) => {

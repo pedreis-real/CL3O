@@ -9,29 +9,26 @@ import { FEMAP_CMAP } from "./colors";
 
 export const DISP_LABEL: Record<string, string> = {
   u: "T1 · u [mm]", v: "T2 · v [mm]", w: "T3 · w [mm]", t: "Total Translation [mm]",
-  rx: "R1 · θx [rad]", ry: "R2 · θy [rad]", rz: "R3 · θz [rad]", r: "Total Rotation [rad]",
+  rx: "R1 · θx [deg]", ry: "R2 · θy [deg]", rz: "R3 · θz [deg]", r: "Total Rotation [deg]",
 };
 
-// Component groups that share the same colorbar limits, so swapping
-// between e.g. u/v/w doesn't rescale the colormap.
-const TRANS_COMPS = ["u", "v", "w", "t"];
-const ROT_COMPS   = ["rx", "ry", "rz", "r"];
-
-function sharedAbsMax(
+function compRange(
   station_disp: Record<string, number[]> | undefined,
-  comps: string[],
-): number {
-  if (!station_disp) return 1;
-  let m = 0;
-  for (const c of comps) {
-    const arr = station_disp[c];
-    if (!arr) continue;
-    for (const v of arr) {
-      const a = Math.abs(v);
-      if (Number.isFinite(a) && a > m) m = a;
+  comp: string,
+): [number, number] {
+  if (!station_disp) return [-1, 1];
+  const arr = station_disp[comp];
+  if (!arr || arr.length === 0) return [-1, 1];
+  let lo = Infinity, hi = -Infinity;
+  for (const v of arr) {
+    if (Number.isFinite(v)) {
+      if (v < lo) lo = v;
+      if (v > hi) hi = v;
     }
   }
-  return m > 0 ? m : 1;
+  if (!isFinite(lo)) return [-1, 1];
+  if (lo === hi) { const m = Math.abs(lo) * 0.1 || 1; return [lo - m, hi + m]; }
+  return [lo, hi];
 }
 
 // Mesh post-processing view: deformed wing surface colormapped by a
@@ -75,16 +72,10 @@ export function MeshPlot() {
     for (let st = 0; st < nS; st++)
       for (let c = 0; c < nC; c++) intensity[st * nC + c] = sd[st];
 
-    // Shared colorbar scope: all translation components map to the same
-    // |translation|-based range, all rotation components share |rotation|.
     const fixed = colorScaleFixed && colorMin != null && colorMax != null;
-    const isRot = ROT_COMPS.includes(contourComp);
-    const groupAbs = sharedAbsMax(
-      surf.station_disp,
-      isRot ? ROT_COMPS : TRANS_COMPS,
-    );
-    const cmin = fixed ? colorMin! : -groupAbs;
-    const cmax = fixed ? colorMax! :  groupAbs;
+    const [autoMin, autoMax] = compRange(surf.station_disp, contourComp);
+    const cmin = fixed ? colorMin! : autoMin;
+    const cmax = fixed ? colorMax! : autoMax;
 
     // Build a per-vertex intensity for any strip-style mesh (n_chord=2
     // along the span), pulling each station's contour value from the

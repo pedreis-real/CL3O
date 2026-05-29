@@ -422,7 +422,8 @@ class StressRecovery:
 
         self.logger.debug(
             f"Stress summary — "
-            f"sigma max: {max(np.max(np.abs(sigmaA)), np.max(np.abs(sigmaB))):.2f} MPa | "
+            f"sigma max: "
+            f"{max(np.max(np.abs(sigmaA)), np.max(np.abs(sigmaB))):.2f} MPa | "
             f"tau max: {max(np.max(np.abs(tauA)), np.max(np.abs(tauB))):.2f} MPa"
         )
 

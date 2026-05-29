@@ -87,6 +87,8 @@ export interface Section {
     area: number | null;
     I_XX: number | null;
     I_ZZ: number | null;
+    I_XZ: number | null;
+    c_rad: number | null;
     J: number | null;
     A_cells: number[];
     xw1: number | null;
@@ -134,6 +136,7 @@ export interface Info {
   tsw: { MS_min: number | null; R_min: number | null; n_violations: number };
   displacement: { MS_min: number | null; n_violations: number };
   mass: { total: number | null; panels: number | null; flanges: number | null };
+  optvars?: number[] | null;
 }
 
 export interface Mesh3D {
@@ -179,6 +182,21 @@ export interface Forces {
   units: Record<string, string>;
 }
 
+export interface LaminateEntry {
+  name: string;
+  family: string;
+  E1?: number | null;
+  E2?: number | null;
+  G12?: number | null;
+  E1_bend?: number | null;
+  E2_bend?: number | null;
+  G12_bend?: number | null;
+  stacking_seq?: string | null;
+  plies?: string[];
+  thick?: number | null;
+  n_plies?: number | null;
+}
+
 export interface Scene {
   surface: Mesh3D;
   front_spar: Mesh3D;
@@ -193,18 +211,19 @@ export interface Scene {
     lw1: number[]; lw2: number[];
     lf1: number[]; lf2: number[]; lf3: number[]; lf4: number[];
   };
-  laminate_catalog?: Record<string, { name: string; family: string }>;
+  laminate_catalog?: Record<string, LaminateEntry>;
   flanges?: (Mesh3D & { layup_idx: number; label: string })[];
 }
 
 export interface SearchSpace {
   x: number[];
   y: number[];
+  z?: number[];
   f: (number | null)[];
   gen: number[];
   feasible: boolean[];
   cum_path?: number[];
-  explained_variance: [number, number];
+  explained_variance: number[];
   n_distinct: number;
   metrics: {
     n_gens: number;

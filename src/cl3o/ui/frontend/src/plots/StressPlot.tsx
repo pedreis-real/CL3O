@@ -123,26 +123,23 @@ export function StressPlot() {
   }
 
   // -------- Flux mode --------
-  const FLUX_SCALE = 1e4;
-  const fluxRaw  = st[fluxKey] ?? [];
+  const fluxRaw    = st[fluxKey] ?? [];
   const fluxAbsKey = (fluxKey + "_abs") as keyof StressScene;
-  const fluxAbsRaw = (st[fluxAbsKey] as number) || 1.0;
-  const fluxVals = (fluxRaw as number[]).map((v) => v * FLUX_SCALE);
-  const fluxAbs  = fluxAbsRaw * FLUX_SCALE;
+  const fluxAbs    = (st[fluxAbsKey] as number) || 1.0;
 
   const traces: Data[] = [
     meshTrace(panelMesh, {
-      intensity: fluxVals,
+      intensity: fluxRaw as number[],
       intensitymode: "cell",
       colorscale: FLUX_CMAP,
       reversescale: false,
       cmin: -fluxAbs,
       cmax: fluxAbs,
-      colorbarTitle: "q [×10⁻⁴ mm⁻¹]",
+      colorbarTitle: "q [N/mm]",
       colorbarY: 0.5,
       colorbarLen: 0.9,
       name: "panel flux q",
-      hovertemplate: "q = %{intensity:.3g} ×10⁻⁴ mm⁻¹<extra>panel</extra>",
+      hovertemplate: "q = %{intensity:.4g} mm⁻¹<extra>panel</extra>",
     }),
   ];
 
