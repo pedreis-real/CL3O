@@ -200,7 +200,7 @@ def scenario_database(rep: _Reporter) -> RunCLEO:
         opt_name       = _TEST_OPT_NAME,
         db_specs       = db_specs,
         de_hyperpar    = _TEST_DE_HYPERPAR,
-        enable_logging = False,
+        runner_options = {"enable_logging": False},
     )
 
     st = runner.static

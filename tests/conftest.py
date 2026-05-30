@@ -119,7 +119,7 @@ def runner(db_specs) -> RunCLEO:
         opt_name       = _OPT_NAME,
         db_specs       = db_specs,
         de_hyperpar    = _TEST_DE_HYPERPAR,
-        enable_logging = False,
+        runner_options = {"enable_logging": False},
     )
     setup = run.static.opt_setup
     X = 0.5 * (setup.data.lo + setup.data.hi)
@@ -147,7 +147,7 @@ def de_history(db_specs):
         opt_name       = _OPT_NAME + "Hist",
         db_specs       = db_specs,
         de_hyperpar    = _TEST_DE_HYPERPAR,
-        enable_logging = False,
+        runner_options = {"enable_logging": False},
     )
     out_dir = _DFLT_OUT_DIR / f"{_AIRCRAFT.lower()}_{(_OPT_NAME + 'Hist').lower()}"
     if out_dir.exists():

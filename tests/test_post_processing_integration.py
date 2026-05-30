@@ -43,7 +43,7 @@ def test_generation_archive_and_manifest(tmp_path, db_specs) -> None:
         opt_name       = _OPT_NAME,
         db_specs       = db_specs,
         de_hyperpar    = _DE,
-        enable_logging = False,
+        runner_options = {"enable_logging": False},
     )
     out_dir = tmp_path / "run"
     run.run_optimization(out_dir=out_dir)
