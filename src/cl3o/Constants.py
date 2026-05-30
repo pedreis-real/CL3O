@@ -30,15 +30,15 @@ WEIGHTING_FACTOR = 1.0     # e.g. wm = 1000 -> transforms mass in kg to g
 # Analyzed lifting-surface side. Selects which half-span the load mapper
 # slices and which sign the spanwise stations carry through the pipeline.
 # "right" -> Y > 0 (root 0 -> tip +b/2);  "left" -> Y < 0 (root 0 -> tip -b/2).
-WING_SIDE = "right"                                   # "right" | "left"
+WING_SIDE = "left"                                   # "right" | "left"
 WING_SIDE_SIGN = +1.0 if WING_SIDE == "right" else -1.0
 
 # Differential Evolution default hyper-parameters
 DE_HYPERPAR: dict = {
     'NP'             : 16,
-    'CR'             : 0.9,
-    'F'              : 0.8,
-    'lambda'         : 0.5,
+    'CR'             : 0.95,
+    'F'              : 0.3,
+    'lambda'         : 0.2,
     'k_max'          : 200,
     'seed'           : 42,
     'std_tol'        : 1.0e-6,     # std_tol * mean_f < std_f
@@ -48,7 +48,7 @@ DE_HYPERPAR: dict = {
 # Distinct-individual dedup tolerance (euclidean norm in design space)
 DEDUP_TOL = 1.0e-6
 # Relative tolerance used to detect best-f improvement for the stall counter
-STALL_REL_TOL = 1.0e-9
+STALL_REL_TOL = 1.0e-4
 
 # Optimization design-vector boundaries
 OPT_LIMS = {
@@ -62,13 +62,15 @@ OPT_LIMS = {
 # Penalty paremeters
 PENALTY_VARS = {
     "Pcap" : 1000,     # if mass in kg, Pcap means P(X) = ( {Pcap} kg ) at maximum
-    "psi1" : 0.10,
+    "psi1" : 0.30,
     "psi2" : 0.95,
     "v1" : 0.05,
     "v2" : 0.20,
-    "nv_test" : 100,
-    "k" : 0.3427775704335106,
-    "v0" : 11.410059370446527,
+    "nv_test" : 10,
+    # "k" : None,
+    # "v0" : None,
+    "k" : 2.5278245597024287,
+    "v0" : 0.8351885545755384,
     "overflow" : 1e12,
 }
 

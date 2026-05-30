@@ -536,7 +536,7 @@ class Wing:
 # ================================================================================
 
 if __name__ == '__main__':
-    aircraft_name = "da62"
+    aircraft_name = "da62_simplefied"
 
     wing_specs = {
         # LS planform span
@@ -546,29 +546,48 @@ if __name__ == '__main__':
         "cr": 1728.0,
 
         # Taper ratios at each spanwise control point (cpt)
-        "taper": np.array([1.0,
-                           1.0, 
-                           1316.0 / 1728.0,
-                           915.0 / 1728.0]),
+        "taper": np.array([
+            # 1.0,
+            1.0, 
+            1316.0 / 1728.0,
+            915.0 / 1728.0
+        ]),
         
         # Non-dimensional spanwise positions of cpt
-        "pci": np.array([0.0,
-                         623.0 / 6484.0,
-                         2035.0 / 6484.0,
-                         1.0]),
+        "pci": np.array([
+            # 0.0,
+            623.0 / 6484.0,
+            2035.0 / 6484.0,
+            1.0
+        ]),
         
         # Chordline twist of each cpt relative to root
-        "twist": np.array([0.0, 0.0, 0.0, 0.0]),
+        "twist": np.array([
+            # 0.0,
+            0.0,
+            0.0,
+            0.0
+        ]),
 
         # CA sweep value BEFORE each cpt
-        "sweep": np.array([0.0, 6.6, -0.2, -0.2]),
+        "sweep": np.array([
+            # 0.0,
+            6.6,
+            -0.2,
+            -0.2
+        ]),
 
         # Dihedral (+) / Anhedral (-) values BEFORE each cpt
-        "dihedral": np.array([0.0, 0.0, 5.2, 5.2]),
+        "dihedral": np.array([
+            # 0.0,
+            0.0,
+            5.2,
+            5.2
+        ]),
 
         # Airfoil file of each cpt
         "airfoil": [
-            "WortmannFx63137.dat",
+            # "WortmannFx63137.dat",
             "WortmannFx63137.dat",
             "WortmannFx63137.dat",
             "WortmannFx63137.dat",

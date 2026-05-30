@@ -35,6 +35,7 @@ Outputs written to tools/output/tune_de/:
 # ================ PyLib imports ================
 import argparse
 import csv
+import gc
 import sys
 from pathlib import Path
 
@@ -77,15 +78,23 @@ from cl3o.main import RunCLEO, _resolve_db_specs, DatabaseSpec, MainHelpers
 
 _AIRCRAFT    = "DA62"
 _N_SAMPLES   = 10      # LHS sample size (override with --samples)
-_K_MAX_TUNE  = 60      # short DE budget per sample (override with --kmax)
+_K_MAX_TUNE  = 200
 _BASE_SEED   = 100     # seed offset; sample i uses _BASE_SEED + i
-_OUT_DIR     = Path(__file__).resolve().parent / "output" / "tune_de"
+_OUT_DIR     = Path(__file__).resolve().parent / "output" / "tune_de2"
+
+# Hard ceiling on the shared geometry/beam memoization caches. The caches are
+# keyed by per-candidate design variables, so each distinct DE trial adds
+# n_sta entries that are otherwise never evicted; across a full sweep this
+# grows without bound and dominates RAM. When the geometry cache exceeds this
+# many entries (checked at each generation boundary), both caches are cleared
+# together (see _reset_pipeline_caches).
+_CACHE_MAX_ENTRIES = 20_000
 
 # Ranges for each hyper-parameter
 _PARAM_RANGES: dict[str, tuple] = {
-    "NP":     (10,  80),    # population size (cast to int)
+    "NP":     (16,  80),    # population size (cast to int)
     "CR":     (0.5, 1.0),   # crossover probability
-    "F":      (0.3, 1.2),   # differential weight
+    "F":      (0.3, 1.5),   # differential weight
     "lambda": (0.0, 1.0),   # best-attraction weight
 }
 
@@ -102,7 +111,8 @@ def _build_specs() -> list:
         for f in mat_dir.glob("MAT_*_LaminateData.json")
     )
     specs: list = []
-    specs.append(DatabaseSpec(WingData,    DATA_DIR / "wings",    _AIRCRAFT.lower()))
+    # specs.append(DatabaseSpec(WingData,    DATA_DIR / "wings",    _AIRCRAFT.lower()))
+    specs.append(DatabaseSpec(WingData,    DATA_DIR / "wings",    f"{_AIRCRAFT}_simplified".lower()))
     specs.append(DatabaseSpec(AirfoilData, DATA_DIR / "airfoils", "wortmannfx63137"))
     for mat in materials:
         specs.append(DatabaseSpec(LaminateData, mat_dir, mat))
@@ -126,13 +136,34 @@ def _build_runner(k_max: int) -> RunCLEO:
     db_specs = _build_specs()
     MainHelpers.verify_missing_database(db_specs)
     return RunCLEO(
-        aircraft_name    = _AIRCRAFT,
-        opt_name         = "tune_de",
-        db_specs         = db_specs,
-        pipeline_logging = False,
-        enable_logging   = False,
-        de_hyperpar      = {**DE_HYPERPAR, "NP": 4, "k_max": k_max},
+        aircraft_name  = _AIRCRAFT,
+        opt_name       = "tune_de",
+        db_specs       = db_specs,
+        de_hyperpar    = {**DE_HYPERPAR, "NP": 4, "k_max": k_max},
+        runner_options = {"pipeline_logging": False, "enable_logging": True,
+                          "live_plot": False},
     )
+
+
+# ================================================================================
+# Cache management
+# ================================================================================
+
+def _reset_pipeline_caches(runner: RunCLEO) -> None:
+    '''
+    Clear the shared geometry/beam memoization caches on the runner.
+
+    Both caches live on the persistent runner and are reused across every
+    sample of the sweep, so they accumulate for the whole run unless cleared.
+    They MUST be cleared together: beam_cache keys are id() values of the
+    GeomData objects kept alive by geom_cache, so clearing geom_cache alone
+    would let those ids be reused by new objects and produce false cache hits.
+
+    Args:
+        runner: Shared RunCLEO instance owning the static caches.
+    '''
+    runner.static.geom_cache.clear()
+    runner.static.fem_setup.beam_cache.clear()
 
 
 # ================================================================================
@@ -200,6 +231,10 @@ def _run_sample(
     lo = runner.static.opt_setup.data.lo
     hi = runner.static.opt_setup.data.hi
 
+    # Start every sample from empty caches so independent runs never
+    # accumulate each other's geometry/beam entries.
+    _reset_pipeline_caches(runner)
+
     hypar = {
         "NP":             params["NP"],
         "CR":             params["CR"],
@@ -223,10 +258,19 @@ def _run_sample(
         runner.evaluator(X)
         return bool(runner.runtime.fitness.is_feasible)
 
+    def _bound_caches(_k: int, _snap: object) -> None:
+        # Fires at each generation boundary, after the feasibility re-evals,
+        # so within-generation cache hits are preserved. Clears both caches
+        # only once the geometry cache crosses the ceiling, keeping the
+        # convergence-driven hit rate while capping worst-case RAM.
+        if len(runner.static.geom_cache) > _CACHE_MAX_ENTRIES:
+            _reset_pipeline_caches(runner)
+
     run  = RunOpt(
         setup          = setup,
         feasible_check = _is_feasible,
-        enable_logging = False,
+        on_generation  = _bound_caches,
+        enable_logging = True,
     )
     hist = run.history
     bf   = hist.best_f
@@ -402,6 +446,11 @@ def main() -> None:
                   f"  {feas_tag}{stop_tag}")
         except Exception as exc:
             print(f"ERROR: {exc}")
+        finally:
+            # Release this sample's cached geometry/beam entries before the
+            # next run so peak RSS tracks a single sample, not the whole sweep.
+            _reset_pipeline_caches(runner)
+            gc.collect()
 
     if not results:
         print("No successful runs. Exiting.")

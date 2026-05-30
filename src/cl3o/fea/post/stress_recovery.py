@@ -128,7 +128,7 @@ class StressRecovery:
         sections : SectionData,
         element_idx : np.ndarray,
         fea_results : FeaResults,
-        use_local : bool = True,
+        use_local_in_sr : bool = True,
         enable_logging : bool = True,
     ) -> None:
         '''
@@ -142,7 +142,7 @@ class StressRecovery:
         self.logger = io.setup_logger(self, enable_logging)
 
         # 1.Retrieve inputs
-        self.use_local = use_local
+        self.use_local_in_sr = use_local_in_sr
         self.sec = np.array(sections.sec_data, dtype=object)
         self.idx = element_idx
         self.fea = fea_results
@@ -190,7 +190,7 @@ class StressRecovery:
         sign = -1.0 if at_end else 1.0
 
         N  = sign * float(Qc_e [0 + off])       # Always from local frame
-        if self.use_local:
+        if self.use_local_in_sr:
             M1 = sign * float(Qc_e [4 + off])
             M2 = sign * float(Qc_e [5 + off])
 
@@ -345,7 +345,7 @@ class StressRecovery:
                 # ---------------- #
 
                 # Step 2-3: Extract internal forces
-                (N, SX, SZ, T, MX, MZ) = self._extract_internal_forces(
+                (N, S1, S2, T, M1, M2) = self._extract_internal_forces(
                     Qc_e  = Qc_i [:, j],
                     Qsc_e = Qsc_i[:, j],
                     Qc_gl_e  = Qc_gl_i [:, j],
@@ -357,15 +357,15 @@ class StressRecovery:
                 sigma = self._compute_boom_normal_stress(
                     sec=secA_i,
                     N=N,
-                    MX=MX,
-                    MZ=MZ,
+                    MX=M1,
+                    MZ=M2,
                 )
 
                 # Step 5: Shear flow
                 q = self._compute_total_shear_flow(
                     sec=secA_i,
-                    SX=SX,
-                    SZ=SZ,
+                    SX=S1,
+                    SZ=S2,
                     T=T,
                 )
 
@@ -385,7 +385,7 @@ class StressRecovery:
                 # ---------------- #
 
                 # Step 2-3: Extract / explicit internal forces
-                (N, SX, SZ, T, MX, MZ) = self._extract_internal_forces(
+                (N, S1, S2, T, M1, M2) = self._extract_internal_forces(
                     Qc_e  = Qc_i [:, j],
                     Qsc_e = Qsc_i[:, j],
                     Qc_gl_e  = Qc_gl_i [:, j],
@@ -397,15 +397,15 @@ class StressRecovery:
                 sigma = self._compute_boom_normal_stress(
                     sec=secB_i,
                     N=N,
-                    MX=MX,
-                    MZ=MZ,
+                    MX=M1,
+                    MZ=M2,
                 )
 
                 # Step 5: Shear flow
                 q = self._compute_total_shear_flow(
                     sec=secB_i,
-                    SX=SX,
-                    SZ=SZ,
+                    SX=S1,
+                    SZ=S2,
                     T=T,
                 )
 

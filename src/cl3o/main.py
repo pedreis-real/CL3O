@@ -214,6 +214,16 @@ class MainHelpers:
 # DATA PERSISTENCE API
 # ================================================================================
 
+# -------- Runner options --------
+# Keys: use_local_in_sr, use_offset, pipeline_logging, enable_logging, live_plot
+_DFLT_RUNNER_OPTIONS: dict[str, bool] = {
+    "use_local_in_sr" : True,
+    "use_offset"      : True,
+    "pipeline_logging": False,
+    "enable_logging"  : True,
+    "live_plot"       : True,
+}
+
 # -------- Specifications --------
 @dataclass
 class DatabaseSpec:
@@ -312,32 +322,30 @@ class RunCLEO:
 
     def __init__(
         self,
-        aircraft_name    : str,
-        opt_name         : str,
-        db_specs         : list[object],
-        bounds_lo        : Optional[np.ndarray] = None,
-        bounds_hi        : Optional[np.ndarray] = None,
-        de_hyperpar      : dict = DE_HYPERPAR,
-        pipeline_logging : bool  = False,
-        enable_logging   : bool  = True,
+        aircraft_name  : str,
+        opt_name       : str,
+        db_specs       : list[object],
+        bounds_lo      : Optional[np.ndarray] = None,
+        bounds_hi      : Optional[np.ndarray] = None,
+        de_hyperpar    : dict = DE_HYPERPAR,
+        runner_options : Optional[dict[str, bool]] = None,
     ) -> None:
         '''
         Args:
-            aircraft_name   : Label for banner / output directory.
-            opt_name        : Label for banner / output directory.
-            db_specs        : Resolved DatabaseSpec list (post _resolve_db_specs).
-            bounds_lo       : Optional (D,) DE lower bounds. When omitted,
+            aircraft_name : Label for banner / output directory.
+            opt_name      : Label for banner / output directory.
+            db_specs      : Resolved DatabaseSpec list (post _resolve_db_specs).
+            bounds_lo     : Optional (D,) DE lower bounds. When omitted,
                 SetupOpt._build_de_bounds() derives them from OPT_LIMS.
-            bounds_hi       : Optional (D,) DE upper bounds.
-            de_hyperpar     : DE hyper-parameters dict (NP, CR, F, lam,
+            bounds_hi     : Optional (D,) DE upper bounds.
+            de_hyperpar   : DE hyper-parameters dict (NP, CR, F, lam,
                 k_max, seed). Defaults to DFLT_DE_HYPERPAR from Constants.
-            tol             : DE early-stop tolerance.
-            stall_patience  : Generations of no improvement before stop.
-            pipeline_logging: Propagate info-level logs into the per-
-                candidate pipeline sub-classes (noisy; default False).
-            enable_logging  : Toggle logger for RunCLEO itself.
+            runner_options: dict[str, bool] with all pipeline boolean switches.
+                Defaults to _DFLT_RUNNER_OPTIONS (all features at their defaults).
         '''
-        self.logger = io.setup_logger(self, enable_logging)
+        runner_options = {**_DFLT_RUNNER_OPTIONS, **(runner_options or {})}
+        self.runner_options = runner_options
+        self.logger = io.setup_logger(self, runner_options["enable_logging"])
         self.logger.info("Initialising RunCLEO")
 
         self.aircraft_name  = aircraft_name
@@ -354,7 +362,9 @@ class RunCLEO:
         # -------- 2. Assemble the DE evaluator closure --------
         builder = BuildEvaluator(
             static_data      = self.static,
-            pipeline_logging = pipeline_logging,
+            use_local_in_sr  = runner_options["use_local_in_sr"],
+            use_offset       = runner_options["use_offset"],
+            pipeline_logging = runner_options["pipeline_logging"],
         )
         self.evaluator = builder.eval_
         self.runtime   = builder.rt
@@ -373,7 +383,7 @@ class RunCLEO:
         # -------- 4. Build SetupOpt (populates opt_setup) --------
         self.static.opt_setup = SetupOpt(
             evaluator      = self.evaluator,
-            enable_logging = enable_logging,
+            enable_logging = runner_options["enable_logging"],
             de_hyperpar    = self.de_hyperpar,
             bounds_lo      = bounds_lo,
             bounds_hi      = bounds_hi,
@@ -392,7 +402,6 @@ class RunCLEO:
         self,
         out_dir        : Optional[str | Path] = None,
         feasible_check : Optional[Callable[[np.ndarray], bool]] = None,
-        live_plot      : bool = True,
     ) -> None:
         '''
         End-to-end driver: DE optimization plus optional post-processing.
@@ -401,9 +410,6 @@ class RunCLEO:
             out_dir       : Destination directory for post-processing.
                 Defaults to outputs/<aircraft>_<opt>.
             feasible_check: Optional X -> bool callable for feasibility.
-            live_plot     : When True, opens a live Matplotlib viewer
-                updated every generation with the convergence curve and
-                the 3D wing geometry of the current best individual.
         '''
         out_dir = Path(out_dir) if out_dir is not None else (
             _DFLT_OUT_DIR
@@ -412,7 +418,7 @@ class RunCLEO:
         out_dir.mkdir(parents=True, exist_ok=True)
 
         on_gen = None
-        if live_plot:
+        if self.runner_options["live_plot"]:
             plotter = LivePlotter(self.static)
 
             def on_gen(k: int, hist: HistoryData) -> None:
@@ -1105,26 +1111,26 @@ def _resolve_db_specs(
     ]
 
 
-# ========================================================= #
-# --------------------------------------------------------- #
-# ========================================================= #
-#         /$$$$$$  /$$        /$$$$$$   /$$$$$$             #
-#        /$$__  $$| $$       /$$__  $$ /$$__  $$            #
-#       | $$  \__/| $$      |__/  \ $$| $$  \ $$            #
-#       | $$      | $$         /$$$$$/| $$  | $$            #
-#       | $$      | $$        |___  $$| $$  | $$            #
-#       | $$    $$| $$       /$$  \ $$| $$  | $$            #
-#       |  $$$$$$/| $$$$$$$$|  $$$$$$/|  $$$$$$/            #
-#        \______/ |________/ \______/  \______/             #
-# ========================================================= #
-# --------------------------------------------------------- #
-# ========================================================= #
+# ======================================================= #
+# ------------------------------------------------------- #
+# ======================================================= #
+#         /$$$$$$  /$$        /$$$$$$   /$$$$$$           #
+#        /$$__  $$| $$       /$$__  $$ /$$__  $$          #
+#       | $$  \__/| $$      |__/  \ $$| $$  \ $$          #
+#       | $$      | $$         /$$$$$/| $$  | $$          #
+#       | $$      | $$        |___  $$| $$  | $$          #
+#       | $$    $$| $$       /$$  \ $$| $$  | $$          #
+#       |  $$$$$$/| $$$$$$$$|  $$$$$$/|  $$$$$$/          #
+#        \______/ |________/ \______/  \______/           #
+# ======================================================= #
+# ------------------------------------------------------- #
+# ======================================================= #
 
 if __name__ == "__main__":
     aircraft_name = "DA62"
-    # opt_name = "Test-Single"
-    opt_name = "Test-LocalFrame-LeftWing-1"
-    # opt_name      = "3rdOpt-DEHYP-default"
+    # opt_name = "Test-Single-1"
+    # opt_name = "Test-GlobalFrame-RightWing-3"
+    # opt_name      = "TunedOpt-2-LHS-7"
 
     # ---------------- Set database specifications ----------------
     # Laminates are discovered by glob over MAT_*_LaminateData.json; the
@@ -1146,7 +1152,7 @@ if __name__ == "__main__":
     database_loading_specs: list[object] = []
     database_loading_specs.append(
         # type_nbr = 1
-        DatabaseSpec(WingData, _DFLT_WNG_DIR, f"{aircraft_name.lower()}"),
+        DatabaseSpec(WingData, _DFLT_WNG_DIR, f"{aircraft_name.lower()}_simplified"),
     )
     for afl in airfoils_to_load:
         database_loading_specs.append(
@@ -1175,13 +1181,35 @@ if __name__ == "__main__":
     MainHelpers.verify_missing_database(db_specs)
 
     # ---------------- Runs CL3O main routine ----------------
+
+    # FINAL BUT FIRST (I WON'T CHANGE SRC ANYMORE)
     runner = RunCLEO(
         aircraft_name  = aircraft_name,
-        opt_name       = opt_name,
         db_specs       = db_specs,
-        pipeline_logging = False,
-        de_hyperpar    = {**DE_HYPERPAR, 'NP': 16, 'k_max': 20},
+        opt_name = "Test-5",
+        runner_options = {
+            "use_local_in_sr" : True,
+            "use_offset"      : True,
+            "live_plot"       : False,
+            "pipeline_logging": False,
+            "enable_logging"  : True,
+        },
+        de_hyperpar    = {**DE_HYPERPAR,'k_max': 10},
     )
-    runner.run(live_plot = False)        # CAUTION: the live plot raises RAM demand
-
-    # runner.run_single(X=X)
+    runner.run()
+   
+    # Test-6: LOCAL && NO OFFSET && My = -My
+    runner = RunCLEO(
+        aircraft_name  = aircraft_name,
+        db_specs       = db_specs,
+        opt_name = "Test-6",
+        runner_options = {
+            "use_local_in_sr" : True,
+            "use_offset"      : False,
+            "live_plot"       : False,
+            "pipeline_logging": False,
+            "enable_logging"  : True,
+        },
+        de_hyperpar    = {**DE_HYPERPAR,'k_max': 10},
+    )
+    runner.run()

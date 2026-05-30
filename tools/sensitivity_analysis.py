@@ -114,12 +114,12 @@ def _build_runner() -> RunCLEO:
     db_specs = _build_specs()
     MainHelpers.verify_missing_database(db_specs)
     return RunCLEO(
-        aircraft_name    = _AIRCRAFT,
-        opt_name         = "sensitivity",
-        db_specs         = db_specs,
-        pipeline_logging = False,
-        enable_logging   = False,
-        de_hyperpar      = {**DE_HYPERPAR, "NP": 4, "k_max": 1},
+        aircraft_name  = _AIRCRAFT,
+        opt_name       = "sensitivity",
+        db_specs       = db_specs,
+        de_hyperpar    = {**DE_HYPERPAR, "NP": 4, "k_max": 1},
+        runner_options = {"pipeline_logging": False, "enable_logging": False,
+                          "live_plot": False},
     )
 
 

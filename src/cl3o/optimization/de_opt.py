@@ -250,10 +250,9 @@ class GenerationArchiver:
 
         self.runtime_data = runtime_data
         self.records      : list[dict] = []
-        # Dedup state: every archived distinct X kept in memory so we can
-        # compare incoming candidates by euclidean norm. Indices into this
-        # list line up with `distinct_records`.
-        self._archived_X      : list[np.ndarray] = []
+        # Dedup state: hash map from rounded design-vector tuple to its index
+        # in distinct_records. O(1) lookup replaces the O(k) linear scan.
+        self._archived_X_map  : dict[tuple, int] = {}
         self.distinct_records : list[dict]       = []
         self.created_at   = datetime.datetime.now(
             datetime.timezone.utc
@@ -306,7 +305,8 @@ class GenerationArchiver:
             self.records.append(rec)
             self.distinct_records.append(rec)
             if X is not None:
-                self._archived_X.append(np.asarray(X, dtype=float).copy())
+                key = tuple(np.round(np.asarray(X, dtype=float).ravel(), 8))
+                self._archived_X_map[key] = len(self.distinct_records) - 1
         except Exception as exc:
             self.logger.warning(
                 f"[CL3O] Snapshot archive failed at gen {k}.\n"
@@ -317,14 +317,11 @@ class GenerationArchiver:
         self,
         X : np.ndarray | None,
     ) -> int | None:
-        '''Return index of a previously archived X within DEDUP_TOL, else None.'''
-        if X is None or not self._archived_X:
+        '''Return index into distinct_records of a previously archived X, or None.'''
+        if X is None or not self._archived_X_map:
             return None
-        Xv = np.asarray(X, dtype=float).ravel()
-        for i, prev in enumerate(self._archived_X):
-            if prev.shape == Xv.shape and np.linalg.norm(prev - Xv) < DEDUP_TOL:
-                return i
-        return None
+        key = tuple(np.round(np.asarray(X, dtype=float).ravel(), 8))
+        return self._archived_X_map.get(key, None)
 
     # ------------------------------------------------
     # Public methods - final manifest
@@ -689,7 +686,8 @@ class RunOpt:
         # -------- 2. DE generations --------
         k_last = 0
         for k in range(1, k_max + 1):
-            best_i = int(np.argmin(f))
+            best_i   = int(np.argmin(f))
+            last_eval = NP - 1
 
             for i in range(NP):
                 # Randomization
@@ -708,8 +706,9 @@ class RunOpt:
                 # Selection
                 f_u = float(eval_(u))
                 if f_u <= f[i]:
-                    X[i] = u
-                    f[i] = f_u
+                    X[i]     = u
+                    f[i]     = f_u
+                    last_eval = i
 
             self._record_generation(
                 k, X, f, best_X_hist, best_f_hist, mean_f_hist, std_f_hist,
@@ -725,12 +724,13 @@ class RunOpt:
                 feas_best_X, feas_best_f,
             )
 
-            self._archive_generation(k, X, f)
+            self._archive_generation(k, X, f, last_i=last_eval)
 
             if self.logger.isEnabledFor(logging.DEBUG):
                 if self.archiver is None and self.runtime_data is not None:
                     curr_best_i = int(np.argmin(f))
-                    eval_(X[curr_best_i])
+                    if curr_best_i != last_eval:
+                        eval_(X[curr_best_i])
                 self.logger.debug(
                     self._debug_gen_msg(
                         k, best_f_hist, mean_f_hist, std_f_hist,
@@ -738,7 +738,7 @@ class RunOpt:
                 )
 
             k_last = k
-            if self._converged(k, std_f_hist):
+            if self._converged(k, std_f_hist, mean_f_hist):
                 self.logger.info(
                     f"DE early-stop at gen {k} "
                     f"(tol={self.tol}, std collapsed)."
@@ -783,15 +783,19 @@ class RunOpt:
 
     def _converged(
         self,
-        k          : int,
-        std_f_hist : np.ndarray,
+        k           : int,
+        std_f_hist  : np.ndarray,
+        mean_f_hist : np.ndarray,
     ) -> bool:
         '''
-        Declare convergence when population std at gen k is below `tol`.
-        A collapsed std means every member is near-identical; DE has no
-        productive mutations left regardless of best_f trend.
+        Declare convergence when population std at gen k is below
+        `tol * |mean_f|`. The relative check keeps the threshold
+        proportional to the fitness scale (kg), so the criterion fires
+        when the population has effectively collapsed regardless of the
+        absolute magnitude of the objective.
         '''
-        return float(std_f_hist[k]) < self.tol
+        mean = abs(float(mean_f_hist[k]))
+        return float(std_f_hist[k]) < self.tol * max(1.0, mean)
 
     def _stalled(
         self,
@@ -865,20 +869,28 @@ class RunOpt:
 
     def _archive_generation(
         self,
-        k : int,
-        X : np.ndarray,
-        f : np.ndarray,
+        k      : int,
+        X      : np.ndarray,
+        f      : np.ndarray,
+        last_i : int = -1,
     ) -> None:
         '''
-        Re-evaluate the best individual of generation k so that the
-        shared RuntimeData object reflects it, then hand off to the
-        archiver which pickles the current state. No-op when no archiver
-        was configured.
+        Ensure runtime_data reflects the best individual of generation k,
+        then hand off to the archiver. No-op when no archiver was configured.
+
+        Args:
+            k     : Generation index.
+            X     : Current population (NP, D).
+            f     : Current fitness vector (NP,).
+            last_i: Index of the last individual evaluated in the selection
+                loop. When it matches best_i, the shared RuntimeData already
+                holds the correct state and the extra eval is skipped.
         '''
         if self.archiver is None:
             return
         best_i = int(np.argmin(f))
-        self.setup.evaluator(X[best_i])
+        if best_i != last_i:
+            self.setup.evaluator(X[best_i])
         self.archiver.archive(k, X=X[best_i])
 
     def _update_best_feasible(

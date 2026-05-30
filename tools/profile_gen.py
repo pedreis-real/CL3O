@@ -63,12 +63,12 @@ def main() -> None:
     MainHelpers.verify_missing_database(db_specs)
 
     runner = RunCLEO(
-        aircraft_name    = _AIRCRAFT,
-        opt_name         = "profile",
-        db_specs         = db_specs,
-        pipeline_logging = False,
-        enable_logging   = False,
-        de_hyperpar      = {**DE_HYPERPAR, "NP": _NP, "k_max": _K_MAX},
+        aircraft_name  = _AIRCRAFT,
+        opt_name       = "profile",
+        db_specs       = db_specs,
+        de_hyperpar    = {**DE_HYPERPAR, "NP": _NP, "k_max": _K_MAX},
+        runner_options = {"pipeline_logging": False, "enable_logging": False,
+                          "live_plot": False},
     )
 
     print(f"[profile_gen] Profiling {_NP} candidates × {_K_MAX} generation(s)...")

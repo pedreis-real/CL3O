@@ -49,7 +49,7 @@ def test_recovery_matches_runtime(runtime) -> None:
         sections       = runtime.sections,
         element_idx    = runtime.mesh.conn[:, :2],
         fea_results    = runtime.fea_rts,
-        use_local      = False,
+        use_local_in_sr = False,
         enable_logging = False,
     ).data
     np.testing.assert_allclose(sd2.sigma[0], runtime.stress.sigma[0],

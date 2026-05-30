@@ -1,0 +1,8 @@
+run,file,n_loadcases
+da62_test-1,gen_0006.pkl,1.0
+da62_test-2,gen_0010.pkl,1.0
+da62_test-3,gen_0010.pkl,1.0
+da62_test-4,gen_0010.pkl,1.0
+da62_test-5,gen_0007.pkl,1.0
+da62_test-6,gen_0010.pkl,1.0
+da62_test-single-nooffset-2,gen_0001.pkl,1.0

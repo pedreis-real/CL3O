@@ -130,6 +130,7 @@ class BeamElement:
         geomB : GeomData,
         coord_vector : np.ndarray,
         release_type : int,
+        use_offset     : bool = True,
         enable_logging : bool = True,
     ) -> None:
         self.logger = io.setup_logger(self, enable_logging)
@@ -141,6 +142,7 @@ class BeamElement:
 
         # Unpack inputs
         self.code = release_type
+        self.use_offset = use_offset
 
         self.C = coord_vector
         self.a, self.b, self.L = mthu.cart2sph(self.C)
@@ -344,8 +346,7 @@ class BeamElement:
         k_c = self._local_stiffness_matrix()
 
         # Steps 3. Offset matrix
-        G_mat = self._offset_matrix()
-        # G_mat = np.eye(12)
+        G_mat = self._offset_matrix() if self.use_offset else np.eye(12)
 
         # Steps 4. Offset transformation
         k_sc = G_mat.T @ k_c  @ G_mat

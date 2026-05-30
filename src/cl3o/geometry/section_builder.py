@@ -141,9 +141,15 @@ class SectionBuilder:
     # ----------------------------------------------------------------
 
     def _cp_index(self, Y_sta: float) -> int:
-        '''Return i such that Y_cp[i] <= Y_sta < Y_cp[i+1], clamped.'''
+        '''
+        Return i such that Y_cp[i] <= |Y_sta| < Y_cp[i+1], clamped.
+
+        Y_cp is stored positive (|Y| space) for both wings, while Y_sta is
+        signed by Constants.WING_SIDE; query in |Y| so the left wing (Y < 0)
+        does not collapse onto the root control point.
+        '''
         Y_cp = self.st.lerp_wing_db.Y_cp
-        idx  = int(np.searchsorted(Y_cp, Y_sta, side='right')) - 1
+        idx  = int(np.searchsorted(Y_cp, abs(Y_sta), side='right')) - 1
         return int(np.clip(idx, 0, len(Y_cp) - 2))
 
     def _blend_airfoil(
@@ -162,7 +168,8 @@ class SectionBuilder:
         Y_cp   = wng.Y_cp
 
         i     = self._cp_index(Y_sta)
-        alpha = (Y_sta - Y_cp[i]) / (Y_cp[i + 1] - Y_cp[i] + _TOL)
+        # Y_cp is |Y| space; Y_sta is signed by side, so blend on |Y_sta|.
+        alpha = (abs(Y_sta) - Y_cp[i]) / (Y_cp[i + 1] - Y_cp[i] + _TOL)
         alpha = float(np.clip(alpha, 0.0, 1.0))
 
         afl_A = afl_db[wng.afl_lst[i]]
@@ -186,7 +193,9 @@ class SectionBuilder:
         '''
         opt  = self.opt
         Y_cp = self.st.lerp_wing_db.Y_cp
-        interp = lambda arr: float(np.interp(Y_sta, Y_cp, arr))
+        # Y_cp is |Y| space; query on |Y_sta| so the left wing (Y < 0) is not
+        # clamped to the root control point.
+        interp = lambda arr: float(np.interp(abs(Y_sta), Y_cp, arr))
 
         return {
             'xw1': interp(opt.xw1),

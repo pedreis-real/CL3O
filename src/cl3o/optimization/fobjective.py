@@ -191,6 +191,8 @@ class BuildEvaluator:
     def __init__(
         self,
         static_data,
+        use_local_in_sr  : bool = True,
+        use_offset       : bool = True,
         pipeline_logging : bool = False,
         enable_logging   : bool = True,
     ):
@@ -198,6 +200,9 @@ class BuildEvaluator:
         Args:
             static_data     : StaticData container with wing_db, fem_setup,
                 laminate_db and all upstream JSON-loaded artefacts.
+            use_local_in_sr : Use local-frame forces in StressRecovery.
+            use_offset      : Apply the shear-centre offset G matrix in
+                BeamElement.
             pipeline_logging: When True, propagates info-level logging into
                 every pipeline sub-class. Default False to keep the DE
                 inner loop quiet.
@@ -220,6 +225,8 @@ class BuildEvaluator:
         self.n_cpts = int(self.st.wing_db.n_cpts)
         self.pipeline_logging = bool(pipeline_logging)
 
+        self.use_local_in_sr = use_local_in_sr
+        self.use_offset      = use_offset
         self.eval_ = self._assemble()
 
     # ------------------------------------------------
@@ -302,7 +309,7 @@ class BuildEvaluator:
             ls1 = np.floor(ls1), ls2 = np.floor(ls2),
             lw1 = np.floor(lw1), lw2 = np.floor(lw2),
             lf1 = np.floor(lf1), lf2 = np.floor(lf2),
-            lf3 = lf3, lf4 = lf4,
+            lf3 = np.floor(lf3), lf4 = np.floor(lf4),
         )
     
     # ----------------------------------------
@@ -347,6 +354,7 @@ class BuildEvaluator:
             # Step 4: Mesh construction
             mesh = MeshBuilder(
                 data           = (self.st.fem_setup, self.rt.sections),
+                use_offset     = self.use_offset,
                 enable_logging = log,
             )
             self.rt.mesh = mesh.data
@@ -364,7 +372,7 @@ class BuildEvaluator:
                 sections       = self.rt.sections,
                 element_idx    = self.rt.mesh.conn[:, :2],
                 fea_results    = self.rt.fea_rts,
-                # use_local = False,
+                use_local_in_sr = self.use_local_in_sr,
                 enable_logging = log,
             )
             self.rt.stress = stress.data

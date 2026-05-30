@@ -116,13 +116,15 @@ class MeshBuilder:
     def __init__(
         self,
         data : tuple[object, object],
-        enable_logging: bool = True,
+        use_offset     : bool = True,
+        enable_logging : bool = True,
     ) -> None:
         self.logger = io.setup_logger(self, enable_logging)
-        
+
         # Unpack inputs
         fem_setup = data[0]
         sections  = data[1]
+        self.use_offset = use_offset
 
         self.beam_cache = fem_setup.beam_cache
 
@@ -186,7 +188,7 @@ class MeshBuilder:
             # Step 3. Beam element — use cache when geomA/geomB are reused.
             # Cache key uses object identity: GeomData objects are kept alive
             # by StaticData.geom_cache so id() values are stable.
-            beam_key = (id(geomA), id(geomB), rls)
+            beam_key = (id(geomA), id(geomB), rls, self.use_offset)
             cached   = self.beam_cache.get(beam_key)
 
             ei  = mcn[i]
@@ -197,7 +199,7 @@ class MeshBuilder:
             else:
                 # Step 3b. Build beam element matrices
                 C         = self.coord[conn_i[1]] - self.coord[conn_i[0]]
-                beam_data = BeamElement(geomA, geomB, C, rls, enable_logging=False).data
+                beam_data = BeamElement(geomA, geomB, C, rls, self.use_offset, enable_logging=False).data
 
                 k_gl_i = beam_data.k_gl
                 k_sc   = beam_data.k_sc_r
