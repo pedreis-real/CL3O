@@ -46,11 +46,11 @@ def test_stress_shapes_and_finite(runtime) -> None:
 def test_recovery_matches_runtime(runtime) -> None:
     '''Re-running StressRecovery reproduces the cached boom stresses.'''
     sd2 = StressRecovery(
-        sections       = runtime.sections,
-        element_idx    = runtime.mesh.conn[:, :2],
-        fea_results    = runtime.fea_rts,
-        use_local_in_sr = False,
-        enable_logging = False,
+        sections        = runtime.sections,
+        element_idx     = runtime.mesh.conn[:, :2],
+        fea_results     = runtime.fea_rts,
+        use_local_in_sr = True,
+        enable_logging  = False,
     ).data
     np.testing.assert_allclose(sd2.sigma[0], runtime.stress.sigma[0],
                                rtol=0.0, atol=0.0)
