@@ -97,6 +97,31 @@ def _build_db_specs() -> list[DatabaseSpec]:
 
 
 # ================================================================================
+# PRIVATE API - RunCLEO factory
+# ================================================================================
+
+def _make_runner(
+    db_specs : list,
+    opt_name : str = _OPT_NAME,
+    **overrides,
+) -> RunCLEO:
+    '''
+    Single source of truth for constructing a RunCLEO in tests.
+
+    When RunCLEO.__init__ kwargs change, update this function only.
+    All fixtures and test files that need a RunCLEO call this helper.
+    '''
+    return RunCLEO(
+        aircraft_name  = _AIRCRAFT,
+        opt_name       = opt_name,
+        db_specs       = db_specs,
+        de_hyperpar    = _TEST_DE_HYPERPAR,
+        runner_options = {"enable_logging": False},
+        **overrides,
+    )
+
+
+# ================================================================================
 # PUBLIC API - Session fixtures
 # ================================================================================
 
@@ -114,13 +139,7 @@ def runner(db_specs) -> RunCLEO:
     Fully-built RunCLEO with one design evaluated at the centre of the
     DE bounds, so runner._builder.rt is a solved RuntimeData.
     '''
-    run = RunCLEO(
-        aircraft_name  = _AIRCRAFT,
-        opt_name       = _OPT_NAME,
-        db_specs       = db_specs,
-        de_hyperpar    = _TEST_DE_HYPERPAR,
-        runner_options = {"enable_logging": False},
-    )
+    run = _make_runner(db_specs)
     setup = run.static.opt_setup
     X = 0.5 * (setup.data.lo + setup.data.hi)
     run.evaluator(X)
@@ -142,13 +161,7 @@ def runtime(runner):
 @pytest.fixture(scope="session")
 def de_history(db_specs):
     '''HistoryData from a tiny end-to-end DE run on a scratch out_dir.'''
-    run = RunCLEO(
-        aircraft_name  = _AIRCRAFT,
-        opt_name       = _OPT_NAME + "Hist",
-        db_specs       = db_specs,
-        de_hyperpar    = _TEST_DE_HYPERPAR,
-        runner_options = {"enable_logging": False},
-    )
+    run = _make_runner(db_specs, opt_name=_OPT_NAME + "Hist")
     out_dir = _DFLT_OUT_DIR / f"{_AIRCRAFT.lower()}_{(_OPT_NAME + 'Hist').lower()}"
     if out_dir.exists():
         shutil.rmtree(out_dir, ignore_errors=True)

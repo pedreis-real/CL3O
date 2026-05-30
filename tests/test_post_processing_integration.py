@@ -19,14 +19,13 @@ import pickle
 import pytest
 
 # ================ Module imports ================
-from cl3o.main import RunCLEO
 from cl3o.optimization.fobjective import RuntimeData
+from conftest import _make_runner
 
 pytestmark = pytest.mark.slow
 
 
 # ================ Global variables ================
-_AIRCRAFT = "DA62"
 _OPT_NAME = "PostProcTest"
 _DE = {"NP": 6, "CR": 0.9, "F": 0.8, "lambda": 0.5,
        "k_max": 2, "seed": 7, "std_tol": 0.0}
@@ -38,13 +37,7 @@ _DE = {"NP": 6, "CR": 0.9, "F": 0.8, "lambda": 0.5,
 
 def test_generation_archive_and_manifest(tmp_path, db_specs) -> None:
     '''RunOpt writes one pickle per generation and a matching manifest.'''
-    run = RunCLEO(
-        aircraft_name  = _AIRCRAFT,
-        opt_name       = _OPT_NAME,
-        db_specs       = db_specs,
-        de_hyperpar    = _DE,
-        runner_options = {"enable_logging": False},
-    )
+    run = _make_runner(db_specs, opt_name=_OPT_NAME, de_hyperpar=_DE)
     out_dir = tmp_path / "run"
     run.run_optimization(out_dir=out_dir)
 

@@ -174,6 +174,22 @@ def _cleanup_dir(path: Path) -> None:
         shutil.rmtree(path, ignore_errors=True)
 
 
+def _make_runner(
+    db_specs : list,
+    opt_name : str = _TEST_OPT_NAME,
+    **overrides,
+) -> RunCLEO:
+    '''Single source of truth for RunCLEO construction in this script.'''
+    return RunCLEO(
+        aircraft_name  = _AIRCRAFT,
+        opt_name       = opt_name,
+        db_specs       = db_specs,
+        de_hyperpar    = _TEST_DE_HYPERPAR,
+        runner_options = {"enable_logging": False},
+        **overrides,
+    )
+
+
 # ================================================================================
 # PUBLIC API - Scenario 1: Database loading
 # ================================================================================
@@ -195,13 +211,7 @@ def scenario_database(rep: _Reporter) -> RunCLEO:
         f"got {len(db_specs)}",
     )
 
-    runner = RunCLEO(
-        aircraft_name  = _AIRCRAFT,
-        opt_name       = _TEST_OPT_NAME,
-        db_specs       = db_specs,
-        de_hyperpar    = _TEST_DE_HYPERPAR,
-        runner_options = {"enable_logging": False},
-    )
+    runner = _make_runner(db_specs)
 
     st = runner.static
     rep.expect("static is StaticData",       isinstance(st, StaticData))

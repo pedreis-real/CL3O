@@ -14,10 +14,13 @@ areas, boom areas, torsion constant and equivalent moduli).
 
 # ================ PyLib imports ================
 import numpy as np
+import pytest
 
 # ================ Module imports ================
 from cl3o.Constants import N_BOOMS, N_SEG_T1, N_FLANGES
 from cl3o.geometry.geom_properties import GeomPropCalculator, GeomData
+
+pytestmark = pytest.mark.integration
 
 
 # ================ Global variables ================

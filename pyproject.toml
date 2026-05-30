@@ -51,5 +51,6 @@ where = ["src"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 markers = [
-    "slow: long-running or plot/integration tests (deselect with '-m \"not slow\"')",
+    "slow: long-running FEA / DE / plot tests (deselect with '-m \"not slow\"')",
+    "integration: requires real JSON database files on disk",
 ]
