@@ -75,6 +75,7 @@ stays terse, mirroring the other modules.
 | `run_name`      | Run folder under `outputs/` whose last `.pkl` is the design  |
 | `out_dir`       | `tools/output/stats/` (created if missing)                   |
 | `dpi`, `style`  | Figure DPI and seaborn theme/context flags                   |
+| `fmt`           | Output format, fixed to `"pdf"` (vector, for LaTeX)          |
 
 Path roots: `outputs/` via `cl3o.paths.OUTPUTS_DIR`; the `tools/output/` root is
 **not** a package path, so it is resolved as a `StatsData` field defaulting to
@@ -113,28 +114,30 @@ Owns a `StatsData` and a logger. Public API:
 
 ## 5. Figures
 
-Each figure is saved as `tools/output/stats/<name>.png` (and the existing
-analysis tools' DPI/`bbox_inches="tight"` conventions are reused).
+All figures are saved as **vector PDF** to `tools/output/stats/<name>.pdf`
+(`fig.savefig(path, bbox_inches="tight")`; `dpi` still set for any embedded
+raster elements such as the heatmap mesh). PDF is chosen for direct inclusion in
+the LaTeX thesis.
 
 ### 5.1 LHS sweep (`results.csv` + `rate.csv`)
 
-- **`lhs_corr_heatmap.png`** — Spearman ρ heatmap, hyper-params
+- **`lhs_corr_heatmap.pdf`** — Spearman ρ heatmap, hyper-params
   `{NP, CR, F, lambda}` against outcomes
   `{best_f_final, feasible_f, n_gens, gen_to_half, elapsed_s}`. Annotated cells.
-- **`lhs_param_scatter.png`** — 2×2 panel, each hyper-param vs `best_f_final`,
+- **`lhs_param_scatter.pdf`** — 2×2 panel, each hyper-param vs `best_f_final`,
   points colored by `converged`, with a linear trend line per panel.
-- **`lhs_convergence.png`** — `best_f` vs generation `k` (log-y) overlaid for
+- **`lhs_convergence.pdf`** — `best_f` vs generation `k` (log-y) overlaid for
   every `rate.csv`; best-final sample highlighted; convergence (`conv == "Y"`)
   generation marked.
-- **`lhs_speed_ecdf.png`** — ECDF (or histogram) of `n_gens` across samples, the
+- **`lhs_speed_ecdf.pdf`** — ECDF (or histogram) of `n_gens` across samples, the
   convergence-speed distribution.
 
 ### 5.2 Sensitivity (`anova_results.csv` + `anova_summary.csv`)
 
-- **`anova_eta_sq.png`** — horizontal η² bar (tornado), groups ranked by effect
+- **`anova_eta_sq.pdf`** — horizontal η² bar (tornado), groups ranked by effect
   size; subtitle annotated with `F_stat` and `p_value` from the summary file
   (omitted gracefully if the summary file is absent).
-- **`anova_group_means.png`** — per-group `mean_f` bar with ±`std_f` error bars.
+- **`anova_group_means.pdf`** — per-group `mean_f` bar with ±`std_f` error bars.
   (Box plots are intentionally not attempted: the redefined CSV carries summary
   statistics only, not the raw per-perturbation fitness values.)
 
@@ -142,14 +145,14 @@ analysis tools' DPI/`bbox_inches="tight"` conventions are reused).
 
 Access patterns mirror `cl3o/ui/backend/extract.py`:
 
-- **`design_mass.png`** — mass breakdown bar from `rt.score` (`total` plus the
+- **`design_mass.pdf`** — mass breakdown bar from `rt.score` (`total` plus the
   available component arrays, e.g. `panels`, `flanges`).
-- **`design_margins.png`** — Tsai-Wu margin of safety and displacement margin
+- **`design_margins.pdf`** — Tsai-Wu margin of safety and displacement margin
   of safety, with the critical (minimum) margin highlighted (from `rt.tsw`,
   `rt.displ`).
-- **`design_panel_stress.png`** — per-panel max|τ| spanwise from `rt.stress`
+- **`design_panel_stress.pdf`** — per-panel max|τ| spanwise from `rt.stress`
   (`tauA`/`tauB`), mirroring `extract.stress`.
-- **`design_forces.png`** — internal force / moment diagrams along the span from
+- **`design_forces.pdf`** — internal force / moment diagrams along the span from
   `rt.fea_rts`, mirroring `extract.forces` (local-frame resultants vs |Y|).
 
 ## 6. Dependencies
