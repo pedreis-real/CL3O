@@ -137,8 +137,9 @@ class LinearStaticSolver:
         mesh : MeshData,
         loads : dict[str, Any],
         enable_logging : bool = True,
+        verbose        : bool = False,
     ) -> None:
-        self.logger = io.setup_logger(self, enable_logging)
+        self.logger = io.setup_logger(self, enable_logging, verbose)
 
         # Step 1. Store inputs
         self.mesh = mesh
@@ -192,7 +193,7 @@ class LinearStaticSolver:
         dof = self.mesh.dof
         nc  = self.nc
 
-        self.logger.info(
+        self.logger.debug(
             f"Solving linear static system "
             f"[dof={dof}, nc={nc} load conditions]"
         )
@@ -212,6 +213,11 @@ class LinearStaticSolver:
         try:
             lu, piv = sla.lu_factor(K_ff)
         except sla.LinAlgError as exc:
+            self.logger.error(
+                f"[CL3O] Singular stiffness matrix K_ff "
+                f"[free DOFs={nf}, shape={K_ff.shape}] - "
+                f"rigid body motion / boundary conditions."
+            )
             raise np.linalg.LinAlgError(
                 f"[CL3O] Singular stiffness matrix K_ff (LU factorisation).\n"
                 f"| free DOFs : {nf}\n"
@@ -272,9 +278,11 @@ class LinearStaticSolver:
                 T_c_gl = self.mesh.T_c_gl[:, :, j]
 
                 Q_sc[:, j, i] = T_sc @ d_i[adress]
+                Q_sc[4, j, i] = -Q_sc[4, j, i]      # My = -My
                 Q_sc_gl[:, j, i] = T_sc_gl @ d_i[adress]
 
                 Q_c[:, j, i] = T_c @ d_i[adress]
+                Q_c[4, j, i] = -Q_c[4, j, i]        # My = -My
                 Q_c_gl[:, j, i] = T_c_gl @ d_i[adress]
 
             # Step 7. Reshape

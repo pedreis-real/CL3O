@@ -148,8 +148,9 @@ class StructuralIdealization:
         self,
         geom_data     : object,
         enable_logging: bool = True,
+        verbose       : bool = False,
     ) -> None:
-        self.logger = io.setup_logger(self, enable_logging)
+        self.logger = io.setup_logger(self, enable_logging, verbose)
         self._gd = geom_data
         self._boom_pos = self._build_boom_index()
 
@@ -347,7 +348,7 @@ class StructuralIdealization:
         Returns:
             BoomData with boom areas and updated geometric properties.
         '''
-        self.logger.info("Running structural idealization (7-boom T4')")
+        self.logger.debug("Running structural idealization (7-boom T4')")
         
         self._compute_boom_areas()
         if self._gd.recalculate_props:

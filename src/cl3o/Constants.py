@@ -41,14 +41,12 @@ DE_HYPERPAR: dict = {
     'lambda'         : 0.2,
     'k_max'          : 200,
     'seed'           : 42,
-    'std_tol'        : 1.0e-6,     # std_tol * mean_f < std_f
-    'stall_patience' : 50,         # gens of no best-f improvement -> stop
+    'std_tol'        : 0.01,    # std_tol * mean_f < std_f ||| 0.01 -> 1 gram (mass) of std
+    'stall_patience' : 50,      # gens of no best-f improvement -> stop
 }
 
-# Distinct-individual dedup tolerance (euclidean norm in design space)
-DEDUP_TOL = 1.0e-6
 # Relative tolerance used to detect best-f improvement for the stall counter
-STALL_REL_TOL = 1.0e-4
+STALL_REL_TOL = 0.01    # 1 gram order
 
 # Optimization design-vector boundaries
 OPT_LIMS = {
@@ -109,6 +107,20 @@ STRINGER_BOOM_IDX = (1, 5)
 # default planar release. Tracked here so that beam_element.py does not
 # carry module-level globals.
 SPHERICAL_HINGE = False
+
+
+# ========================================================================
+# Runtime memoization caches
+# ========================================================================
+
+# Entry ceilings for the shared geometry/beam memoization caches (LRUCache).
+# The caches are keyed by per-candidate design variables, so each distinct
+# DE trial adds entries that would otherwise never be evicted. Bounding them
+# caps worst-case RAM while preserving the convergence-driven hit rate
+# (recently used candidates - the ones that repeat - stay resident).
+# Set to 0 to disable eviction (unbounded, legacy behaviour).
+GEOM_CACHE_MAXSIZE = 20_000     # GeomData entries (one per station per candidate)
+BEAM_CACHE_MAXSIZE = 20_000     # BeamData+T-matrix tuples (one per element)
 
 
 # ========================================================================

@@ -99,6 +99,7 @@ class DisplacementMargins:
         dmatrix        : np.ndarray,
         b              : float,
         enable_logging : bool = True,
+        verbose        : bool = False,
     ) -> None:
         '''
         Args:
@@ -106,8 +107,9 @@ class DisplacementMargins:
             dmatrix         : (6, n, nc) global per-node displacement matrix.
             b               : Wing semi-span [mm].
             enable_logging  : Toggle logger.
+            verbose         : When True, log at DEBUG level.
         '''
-        self.logger = io.setup_logger(self, enable_logging)
+        self.logger = io.setup_logger(self, enable_logging, verbose)
 
         self.n  = int(mesh.n)
         self.m  = int(mesh.m)
@@ -162,8 +164,7 @@ class DisplacementMargins:
         u_max  = float(np.max(np.abs(self.dmatrix[0:3, :, :])))
         th_max = float(np.max(np.abs(self.dmatrix[3:6, :, :])))
 
-        self.logger.info("Displacement margins evaluated.")
-        self.logger.debug(f"Displacement summary: \n"
+        self.logger.debug(f"Displacement margins evaluated.\n"
             f"| u_max        : {u_max:.4f} mm\n"
             f"| th_max       : {np.degrees(th_max):.2f} deg\n"
             f"| u_limit      : {self.u_limit:.4f} mm\n"
@@ -171,6 +172,11 @@ class DisplacementMargins:
             f"| MS_min       : {MS_min:.4f}\n"
             f"| nv           : {nv}"
         )
+        if MS_min < 0.0:
+            self.logger.warning(
+                f"[CL3O] Displacement limit exceeded: negative margin "
+                f"[MS_min={MS_min:.4f}, violations={nv}]."
+            )
 
         self.data = DisplacementData(
             n           = n,

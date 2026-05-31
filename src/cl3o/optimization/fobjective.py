@@ -203,9 +203,10 @@ class BuildEvaluator:
             use_local_in_sr : Use local-frame forces in StressRecovery.
             use_offset      : Apply the shear-centre offset G matrix in
                 BeamElement.
-            pipeline_logging: When True, propagates info-level logging into
-                every pipeline sub-class. Default False to keep the DE
-                inner loop quiet.
+            pipeline_logging: When True, enables every pipeline sub-class
+                logger at DEBUG level so a single evaluation narrates the
+                full 10-step pipeline. Default False to keep the DE inner
+                loop quiet (each step receives the shared null logger).
             enable_logging  : Toggle logger for BuildEvaluator itself.
 
         Notes:
@@ -348,6 +349,7 @@ class BuildEvaluator:
                 opt_vars       = self.rt.optvars,
                 static_data    = self.st,
                 enable_logging = log,
+                verbose        = log,
             )
             self.rt.sections = sec.data
 
@@ -356,6 +358,7 @@ class BuildEvaluator:
                 data           = (self.st.fem_setup, self.rt.sections),
                 use_offset     = self.use_offset,
                 enable_logging = log,
+                verbose        = log,
             )
             self.rt.mesh = mesh.data
 
@@ -364,6 +367,7 @@ class BuildEvaluator:
                 mesh           = self.rt.mesh,
                 loads          = self.st.fem_setup.loads,
                 enable_logging = log,
+                verbose        = log,
             )
             self.rt.fea_rts = static_analysis.results
 
@@ -374,6 +378,7 @@ class BuildEvaluator:
                 fea_results    = self.rt.fea_rts,
                 use_local_in_sr = self.use_local_in_sr,
                 enable_logging = log,
+                verbose        = log,
             )
             self.rt.stress = stress.data
 
@@ -381,6 +386,7 @@ class BuildEvaluator:
             tsw = TsaiWuFailure(
                 data           = (self.st, self.rt),
                 enable_logging = log,
+                verbose        = log,
             )
             self.rt.tsw = tsw.data
 
@@ -390,6 +396,7 @@ class BuildEvaluator:
                 dmatrix        = self.rt.fea_rts.dmatrix,
                 b              = self.st.wing_db.b,
                 enable_logging = log,
+                verbose        = log,
             )
             self.rt.displ = disp.data
 
@@ -397,6 +404,7 @@ class BuildEvaluator:
             penalty = Penalty(
                 data           = (self.rt.tsw, self.rt.displ),
                 enable_logging = log,
+                verbose        = log,
             )
             self.rt.penalty = penalty.data
 
@@ -406,6 +414,7 @@ class BuildEvaluator:
                 element_idx    = self.rt.mesh.conn[:, :2],
                 laminate_db    = self.st.laminate_db,
                 enable_logging = log,
+                verbose        = log,
             )
             self.rt.score = score.data
 
@@ -414,6 +423,7 @@ class BuildEvaluator:
                 mass_data      = score.data,
                 penalty_data   = penalty.data,
                 enable_logging = log,
+                verbose        = log,
             )
             self.rt.fitness = fitness.data
 
@@ -452,6 +462,7 @@ class TotalScore:
         penalty_data   : PenaltyData,
         wm      : float = WEIGHTING_FACTOR,
         enable_logging : bool  = True,
+        verbose        : bool  = False,
     ) -> None:
         '''
         Args:
@@ -459,15 +470,16 @@ class TotalScore:
             penalty_data  : PenaltyData from Penalty.
             mass_coef     : Weighting factor for the mass term.
             enable_logging: Toggle logger.
+            verbose       : When True, log at DEBUG level.
         '''
-        self.logger = io.setup_logger(self, enable_logging)
+        self.logger = io.setup_logger(self, enable_logging, verbose)
 
         mX = float(mass_data.total)
         pX = float(penalty_data.total)
         wm = float(wm)
         fX = wm * mX + pX
 
-        self.logger.info(
+        self.logger.debug(
             f"TotalScore evaluated.\n"
             f"| mass      : {mX:.4f} kg\n"
             f"| penalty   : {pX:.4f} kg\n"

@@ -112,6 +112,7 @@ class SectionBuilder:
         opt_vars : object,      # OptVars container
         static_data : object,   # StaticData container
         enable_logging: bool = True,
+        verbose: bool = False,
     ) -> None:
         '''
         Builds cross section properties for every spanwise station.
@@ -128,8 +129,9 @@ class SectionBuilder:
                     airfoil_db   : dict[str, AirfoilData]
                     material_db  : dict[str, LaminateData]
         '''
-        self.log = enable_logging
-        self.logger = io.setup_logger(self, enable_logging)
+        self.log     = enable_logging
+        self.verbose = verbose
+        self.logger  = io.setup_logger(self, enable_logging, verbose)
 
         self.opt = opt_vars
         self.st  = static_data
@@ -340,8 +342,11 @@ class SectionBuilder:
         self.lam_T1 = []
         self.lam_T4 = []
 
-        self.logger.info("Building cross-sections.")
+        self.logger.debug(
+            f"Building cross-sections for {len(wng.Y_sta)} stations."
+        )
         sec: list[GeomData] = []
+        _n_cache_hits = 0
         _r4 = lambda v: round(float(v), 4)
 
         for k, station in enumerate(wng.Y_sta):
@@ -382,11 +387,23 @@ class SectionBuilder:
                     T4_props      = T4_props,
                     LE_xz         = wng.LE[k, [0, 2]],
                     enable_logging = self.log,
+                    verbose        = self.verbose,
                 )
                 geom_data = calc.run()
+                # Stamp the content key so the beam cache (mesh_builder) can
+                # key on geometry content rather than id(), making both caches
+                # safe to evict independently.
+                geom_data.cache_key = cache_key
                 geom_cache[cache_key] = geom_data
+            else:
+                _n_cache_hits += 1
 
             sec.append(geom_data)
+
+        self.logger.debug(
+            f"Cross-sections built: {len(sec)} stations "
+            f"({_n_cache_hits} served from geom_cache)."
+        )
 
         self.data = SectionData(
             n_sta    = wng.n_sta,

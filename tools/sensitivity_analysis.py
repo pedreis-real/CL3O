@@ -41,6 +41,7 @@ Outputs written to tools/output/sensitivity/:
 # ================ PyLib imports ================
 import argparse
 import csv
+import pickle
 import sys
 from pathlib import Path
 
@@ -58,7 +59,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from cl3o.Constants import DE_HYPERPAR
 
 # Utilities
-from cl3o.paths import DATA_DIR
+from cl3o.paths import DATA_DIR, OUTPUTS_DIR
 from cl3o.utils.oppoints import OppData
 
 # Geometry
@@ -70,6 +71,9 @@ from cl3o.materials.laminate import LaminateData
 
 # FEA
 from cl3o.fea.loads.load_mapper import ExLoadsData, InLoadsData
+
+# Optimization
+from cl3o.optimization.fobjective import BuildEvaluator
 
 # Main
 from cl3o.main import RunCLEO, _resolve_db_specs, DatabaseSpec, MainHelpers
@@ -83,8 +87,11 @@ _AIRCRAFT = "DA62"
 _N_PERT   = 20       # perturbations per structural group (override with --npert)
 _OUT_DIR  = Path(__file__).resolve().parent / "output" / "sensitivity"
 
-_GROUP_NAMES  = ["Longarinas", "Flanges", "Revestimento", "Almas", "Mesas"]
+_GROUP_NAMES  = ["Longarinas", "Flanges-largura", "Revestimento", "Almas", "Flanges-layup"]
 _GROUP_COLORS = ["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd"]
+
+# Sub-directory names a run may use for its per-generation pickles.
+_PKL_SUBDIRS = ("generations", "opt_files", "")
 
 
 # ================================================================================
@@ -124,6 +131,66 @@ def _build_runner() -> RunCLEO:
 
 
 # ================================================================================
+# Reference design from archived run
+# ================================================================================
+
+def _load_last_pkl(run_name: str) -> object:
+    '''
+    Load the last generation pickle from an archived DE run.
+
+    Searches `outputs/<run_name>/` for the sub-directory that holds the
+    per-generation pickles (tried in order: generations/, opt_files/, root).
+
+    Args:
+        run_name: Folder name under OUTPUTS_DIR (e.g. "da62_Opt-1").
+
+    Returns:
+        Deserialized RuntimeData of the last generation.
+
+    Raises:
+        FileNotFoundError: if the run directory or no pkl files are found.
+    '''
+    run_dir = OUTPUTS_DIR / run_name
+    if not run_dir.is_dir():
+        raise FileNotFoundError(
+            f"[CL3O] Run directory not found.\n"
+            f"| run  : {run_name}\n"
+            f"| path : {run_dir}"
+        )
+    pkl_files: list[Path] = []
+    for sub in _PKL_SUBDIRS:
+        candidate = run_dir / sub if sub else run_dir
+        if candidate.is_dir():
+            pkl_files = sorted(candidate.glob("gen_*.pkl"))
+            if pkl_files:
+                break
+    if not pkl_files:
+        raise FileNotFoundError(
+            f"[CL3O] No gen_*.pkl files found in run directory.\n"
+            f"| run  : {run_name}\n"
+            f"| path : {run_dir}"
+        )
+    last_pkl = pkl_files[-1]
+    print(f"  loading reference from: {last_pkl.relative_to(OUTPUTS_DIR.parent)}")
+    with open(last_pkl, "rb") as fh:
+        return pickle.load(fh)
+
+
+def _x_from_run(run_name: str) -> np.ndarray:
+    '''
+    Extract the flat design vector from the last generation of a DE run.
+
+    Args:
+        run_name: Folder name under OUTPUTS_DIR.
+
+    Returns:
+        Flat design vector X reconstructed via BuildEvaluator.encode_optvars.
+    '''
+    rt = _load_last_pkl(run_name)
+    return BuildEvaluator.encode_optvars(rt.optvars)
+
+
+# ================================================================================
 # Group slice builder
 # ================================================================================
 
@@ -146,11 +213,11 @@ def _get_groups(n: int) -> dict[str, tuple[slice, bool]]:
         for layup-index variables; the LHC sampler will round them.
     '''
     return {
-        "Longarinas":   (slice(0,        2*n),    False),
-        "Flanges":      (slice(2*n,      3*n+3),  False),
-        "Revestimento": (slice(3*n+3,    5*n+3),  True),
-        "Almas":        (slice(5*n+3,    7*n+3),  True),
-        "Mesas":        (slice(7*n+3,    11*n+3), True),
+        "Longarinas":      (slice(0,        2*n),    False),
+        "Flanges-largura": (slice(2*n,      3*n+3),  False),
+        "Revestimento":    (slice(3*n+3,    5*n+3),  True),
+        "Almas":           (slice(5*n+3,    7*n+3),  True),
+        "Flanges-layup":   (slice(7*n+3,    11*n+3), True),
     }
 
 
@@ -186,7 +253,7 @@ def _lhc_group(
         rng.shuffle(pts[:, j])
     samples = lo_g + pts * (hi_g - lo_g)
     if discrete:
-        samples = np.round(samples).astype(float)
+        samples = np.round(samples).astype(int)
     return samples
 
 
@@ -386,6 +453,14 @@ def main() -> None:
         "--npert", type=int, default=_N_PERT,
         help=f"Perturbations per group (default {_N_PERT}).",
     )
+    parser.add_argument(
+        "--run", type=str, default=None,
+        help=(
+            "Archived DE run folder name under outputs/ (e.g. 'da62_Opt-1'). "
+            "X_ref is taken from the last generation pickle. "
+            "If omitted, X_ref defaults to the midpoint of the DE bounds."
+        ),
+    )
     args   = parser.parse_args()
     n_pert = int(args.npert)
 
@@ -401,8 +476,15 @@ def main() -> None:
     print(f"  wing n_cpts = {n}  |  D = {D}")
 
     groups = _get_groups(n)
-    X_ref  = _make_reference(lo, hi, n)
-    rng    = np.random.default_rng(42)
+    rng    = np.random.default_rng(DE_HYPERPAR["seed"])
+
+    if args.run is not None:
+        print(f"\nLoading X_ref from archived run '{args.run}' ...")
+        X_ref = _x_from_run(args.run)
+        print(f"  X_ref loaded  (D={X_ref.size})")
+    else:
+        print("\nNo --run supplied -- using midpoint of DE bounds as X_ref.")
+        X_ref = _make_reference(lo, hi, n)
 
     print("\nEvaluating reference design X_ref ...")
     f_ref = _eval_safe(runner, X_ref)

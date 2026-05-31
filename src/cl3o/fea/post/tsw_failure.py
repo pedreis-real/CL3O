@@ -127,6 +127,7 @@ class TsaiWuFailure:
         self,
         data : tuple,
         enable_logging : bool = True,
+        verbose        : bool = False,
     ) -> None:
         '''
         Args:
@@ -137,7 +138,7 @@ class TsaiWuFailure:
                 runtime.stress     : StressData with sigma and tau tuples
                 runtime.mesh.conn  : (m, >=2) element node connectivity
         '''
-        self.logger = io.setup_logger(self, enable_logging)
+        self.logger = io.setup_logger(self, enable_logging, verbose)
 
         st, rt = data
         self.lam_db   = st.laminate_db
@@ -393,12 +394,17 @@ class TsaiWuFailure:
         R_min  = float(np.nanmin([np.nanmin(R_panels), np.nanmin(R_booms)]))
         MS_min = R_min - 1.0
 
-        self.logger.info("Tsai-Wu evaluation complete.")
-        self.logger.debug(f"Failure summary: \n"
+        self.logger.debug(
+            f"Tsai-Wu evaluation complete.\n"
             f"| R_min  : {R_min:.4f}\n"
             f"| MS_min : {MS_min:.4f}\n"
             f"| nv     : {nv}"
         )
+        if MS_min < 0.0:
+            self.logger.warning(
+                f"[CL3O] Tsai-Wu failure: negative margin of safety "
+                f"[MS_min={MS_min:.4f}, R_min={R_min:.4f}, violations={nv}]."
+            )
 
         self.data = FailureData(
             n  = self.n,

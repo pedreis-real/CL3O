@@ -13,7 +13,11 @@ following assumptions:
    structural analysis and Tsai-Wu failure criteria.
 3. It uses Differential Evolution algorithm for optmizing the LS.
 
-See the README and the accompanying undergraduate thesis (TCC, UFMG 2026)
+See the README and the accompanying undergraduate thesis:
+
+"Desenvolvimento de software para dimensionamento estrutural
+preliminar de asas em material composto"
+
 for the full theoretical background.
 
 ========================================================
@@ -105,10 +109,11 @@ from cl3o.paths import (
 # ================ Module imports ================
 
 # Constants
-from cl3o.Constants import DE_HYPERPAR, WING_SIDE
+from cl3o.Constants import DE_HYPERPAR, WING_SIDE, GEOM_CACHE_MAXSIZE
 
 # Utilities
 from cl3o.utils import io_utils as io
+from cl3o.utils.lru_cache import LRUCache
 from cl3o.utils.oppoints import OppData
 
 # Optimization
@@ -292,7 +297,11 @@ class StaticData:
     # Cross-section geometry cache shared across all DE evaluations.
     # Key: (station_idx, xw1_r, xw2_r, bf*_r, ls1..lf4) — all vars that affect GeomData.
     # Hit rate grows as population converges; cost on miss is one dict lookup.
-    geom_cache   : dict                    = field(default_factory=dict)
+    # Bounded LRU: caps RAM on long sweeps while keeping recently-used (i.e.
+    # repeated) candidates resident. See Constants.GEOM_CACHE_MAXSIZE.
+    geom_cache   : LRUCache                = field(
+        default_factory=lambda: LRUCache(GEOM_CACHE_MAXSIZE)
+    )
 
     opt_setup    : OptData                 = field(default=None)
     opt_result   : HistoryData             = field(default=None)
@@ -346,7 +355,8 @@ class RunCLEO:
         runner_options = {**_DFLT_RUNNER_OPTIONS, **(runner_options or {})}
         self.runner_options = runner_options
         self.logger = io.setup_logger(self, runner_options["enable_logging"])
-        self.logger.info("Initialising RunCLEO")
+        # io file-I/O traces are DEBUG; surface them only under pipeline_logging.
+        io.set_io_verbose(runner_options["pipeline_logging"])
 
         self.aircraft_name  = aircraft_name
         self.opt_name       = opt_name
@@ -354,6 +364,14 @@ class RunCLEO:
         self.de_hyperpar    = de_hyperpar
 
         MainHelpers.banner(f"CL3O  -  {self.aircraft_name}  |  {self.opt_name}")
+        self.logger.info(
+            f"Initialising RunCLEO [aircraft={self.aircraft_name}, "
+            f"opt={self.opt_name}]."
+        )
+        self.logger.debug(
+            f"Runner options: "
+            + ", ".join(f"{k}={v}" for k, v in runner_options.items())
+        )
 
         # -------- 1. Load static data (populates fem_setup) --------
         self.static : StaticData  = self._import_database()
@@ -365,6 +383,7 @@ class RunCLEO:
             use_local_in_sr  = runner_options["use_local_in_sr"],
             use_offset       = runner_options["use_offset"],
             pipeline_logging = runner_options["pipeline_logging"],
+            enable_logging   = runner_options["enable_logging"],
         )
         self.evaluator = builder.eval_
         self.runtime   = builder.rt
@@ -384,14 +403,14 @@ class RunCLEO:
         self.static.opt_setup = SetupOpt(
             evaluator      = self.evaluator,
             enable_logging = runner_options["enable_logging"],
+            verbose        = runner_options["pipeline_logging"],
             de_hyperpar    = self.de_hyperpar,
             bounds_lo      = bounds_lo,
             bounds_hi      = bounds_hi,
         )
         self.logger.debug("Step 4/4: static.opt_setup populated.")
         self.logger.info(
-            "RunCLEO ready: fem_setup and opt_setup populated; "
-            "call run() to drive the full pipeline."
+            "RunCLEO ready."
         )
 
     # ----------------------------------------
@@ -416,13 +435,24 @@ class RunCLEO:
             / f"{self.aircraft_name.lower()}_{self.opt_name.lower()}"
         )
         out_dir.mkdir(parents=True, exist_ok=True)
+        self.logger.info(f"Output directory: {out_dir}")
 
         on_gen = None
         if self.runner_options["live_plot"]:
-            plotter = LivePlotter(self.static)
+            try:
+                plotter = LivePlotter(self.static)
+                self.logger.info("Live viewer enabled.")
 
-            def on_gen(k: int, hist: HistoryData) -> None:
-                plotter.update(k, hist, self._builder.best_rt)
+                def on_gen(k: int, hist: HistoryData) -> None:
+                    plotter.update(k, hist, self._builder.best_rt)
+            except RuntimeError as exc:
+                self.logger.warning(
+                    f"[CL3O] Live viewer unavailable - continuing headless.\n"
+                    f"| reason : {exc}"
+                )
+                on_gen = None
+        else:
+            self.logger.info("Live viewer disabled (live_plot=False).")
 
         self.run_optimization(
             feasible_check = feasible_check,
@@ -467,7 +497,8 @@ class RunCLEO:
             runtime_data   = self.runtime,
             out_dir        = out_dir,
             run_label      = f"{self.aircraft_name}_{self.opt_name}",
-            enable_logging = True,
+            enable_logging = self.runner_options["enable_logging"],
+            verbose        = self.runner_options["pipeline_logging"],
         )
         self.static.opt_result = run
         return run.history
@@ -499,14 +530,17 @@ class RunCLEO:
         else:
             X_flat = np.asarray(X, dtype=float).ravel()
 
-        self.evaluator(X_flat)
+        self.logger.info(f"Evaluating single design [D={X_flat.size}] ...")
+        fitness = float(self.evaluator(X_flat))
         snap = _copy.deepcopy(self.runtime)
+        self.logger.info(f"Single design evaluated: fitness z(X) = {fitness:.4f}")
 
         if out_path is not None:
             out_path = Path(out_path)
             out_path.parent.mkdir(parents=True, exist_ok=True)
             with open(out_path, "wb") as f:
                 _pickle.dump(snap, f, protocol=_pickle.HIGHEST_PROTOCOL)
+            self.logger.info(f"Snapshot pickled to: {out_path}")
 
         return snap
 
@@ -521,11 +555,13 @@ class RunCLEO:
         mat_list  : list = []
         afl_dict  : dict = {}
 
+        self.logger.info(f"Loading {len(self.db_specs)} database specs ...")
         for spec in self.db_specs:
             obj = io.read_json(
                 filepath = spec.filepath,
                 dcls     = spec.dcls,
             )
+            self.logger.debug(f"Loaded {spec.field_name} <- {spec.filepath}")
             if spec.field_name == "laminate_db":
                 mat_list.append(obj)
             elif spec.field_name == "airfoil_db":
@@ -541,6 +577,16 @@ class RunCLEO:
         if afl_dict:
             db_loaded["airfoil_db"] = afl_dict
 
+        if mat_list:
+            self.logger.info(f"Loaded {len(mat_list)} laminate(s).")
+        else:
+            self.logger.warning(
+                "[CL3O] No laminates loaded - the catalogue is empty. "
+                "Run composite_library to build MAT_*_LaminateData.json."
+            )
+        if not afl_dict:
+            self.logger.warning("[CL3O] No airfoil data loaded.")
+
         if db_loaded.get("laminate_db"):
             ply_db: dict[str, PlyData] = {}
             for lam in db_loaded["laminate_db"].values():
@@ -551,9 +597,11 @@ class RunCLEO:
                             dcls     = PlyData,
                         )
             db_loaded["ply_db"] = ply_db
+            self.logger.info(f"Loaded {len(ply_db)} unique ply file(s).")
 
         # Fold the full-span stations onto the analyzed wing at runtime so the
         # mesh follows Constants.WING_SIDE without regenerating the loads DB.
+        self.logger.debug(f"Folding wing stations onto side '{WING_SIDE}'.")
         db_loaded["lerp_wing_db"] = WingHelper.lerp_from_data(
             wng_data  = db_loaded["wing_db"],
             Y_sta     = np.asarray(db_loaded["exloads_db"].Y, dtype=float),
@@ -564,8 +612,10 @@ class RunCLEO:
             exloads_db = db_loaded["exloads_db"],
             lerp_wing_db = db_loaded["lerp_wing_db"],
             wing_side = WING_SIDE,
+            enable_logging = self.runner_options["enable_logging"],
         ).fem_setup
 
+        self.logger.info("Static database load complete.")
         return StaticData(**db_loaded)
 
 
@@ -1128,9 +1178,10 @@ def _resolve_db_specs(
 
 if __name__ == "__main__":
     aircraft_name = "DA62"
-    # opt_name = "Test-Single-1"
+    opt_name = "Test-Single-1"
     # opt_name = "Test-GlobalFrame-RightWing-3"
-    # opt_name      = "TunedOpt-2-LHS-7"
+    # opt_name = "Opt-2"
+    # opt_name = "LHS-1"
 
     # ---------------- Set database specifications ----------------
     # Laminates are discovered by glob over MAT_*_LaminateData.json; the
@@ -1182,11 +1233,10 @@ if __name__ == "__main__":
 
     # ---------------- Runs CL3O main routine ----------------
 
-    # FINAL BUT FIRST (I WON'T CHANGE SRC ANYMORE)
     runner = RunCLEO(
         aircraft_name  = aircraft_name,
         db_specs       = db_specs,
-        opt_name = "Test-5",
+        opt_name       = opt_name,
         runner_options = {
             "use_local_in_sr" : True,
             "use_offset"      : True,
@@ -1194,22 +1244,34 @@ if __name__ == "__main__":
             "pipeline_logging": False,
             "enable_logging"  : True,
         },
-        de_hyperpar    = {**DE_HYPERPAR,'k_max': 10},
-    )
-    runner.run()
-   
-    # Test-6: LOCAL && NO OFFSET && My = -My
-    runner = RunCLEO(
-        aircraft_name  = aircraft_name,
-        db_specs       = db_specs,
-        opt_name = "Test-6",
-        runner_options = {
-            "use_local_in_sr" : True,
-            "use_offset"      : False,
-            "live_plot"       : False,
-            "pipeline_logging": False,
-            "enable_logging"  : True,
+        de_hyperpar    = {**DE_HYPERPAR,
+            'k_max': 1,
+            'NP': 4,
+            'CR': 0.7580467347768985,
+            'F': 0.7613068038342563,
+            'lambda': 0.9212614312424539,
         },
-        de_hyperpar    = {**DE_HYPERPAR,'k_max': 10},
     )
     runner.run()
+
+#       NP    CR                      F                       lambda
+# 1     72    0.7580467347768985      0.7613068038342563      0.9212614312424539
+# 2     50    0.8699081067571823      0.3024584114361717      0.5811593572343022
+# 3     32    0.7180372085048521      0.3963981465460308      0.7790166192993425
+# 4     55    0.547818889431943       1.496936620496266       0.6119684721496477
+# 5     41    0.7972568588001199      0.46895121324729194     0.8963577276533934
+# 6     75    0.82646420087013        0.7198325961473526      0.4678897598354535
+# 7     65    0.820816103691335       1.1001670236327397      0.22113436105988293
+# 8     37    0.9998774126308831      0.6402374648816178      0.5168955612753566
+# 9     28    0.9276373819892558      0.8960426109573749      0.0008263817764264548
+# 10    68    0.6595919388565471      0.5237793267857966      0.9730022569654548
+# 11    46    0.6281070819124891      0.9356580018119818      0.4155120937779478
+# 12    52    0.6135365305062273      1.067225898449321       0.08647482804919993
+# 13    42    0.5733768105946943      1.271970926638093       0.36944607119895523
+# 14    32    0.9738647623422685      0.8115212593485435      0.847105655525325
+# 15    18    0.6912614819066955      1.4099937488212588      0.28235947557871255
+# 16    60    0.8799628261127315      0.557982713432243       0.6575139733447419
+# 17    62    0.916799871948909       1.153838532539625       0.1001369250085074
+# 18    79    0.5758396393826366      1.3577464890923825      0.15878278103012797
+# 19    24    0.5067446678440968      0.9736294556120029      0.7026010650532205
+# 20    22    0.747237195858725       1.2054451827371473      0.34904176693881156

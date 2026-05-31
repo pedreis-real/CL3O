@@ -18,13 +18,19 @@ records:
 All samples share the same evaluator (one database load) and the same DE
 bounds. Each sample gets its own RNG seed (BASE_SEED + sample_index).
 
+Each sample runs in an isolated child process (recycled every --batch
+samples) so peak RAM tracks a single sample rather than the whole sweep,
+and results.csv is flushed after every sample so a crash mid-sweep keeps
+all prior results.
+
 Usage:
     python -m tools.tune_de
     python -m tools.tune_de --samples 15 --kmax 80
+    python -m tools.tune_de --batch 4          # recycle child every 4 samples
 
 Outputs written to tools/output/tune_de/:
     lhs_samples.csv         the sampled hyper-parameter table
-    results.csv             per-sample convergence metrics
+    results.csv             per-sample convergence metrics (written live)
     convergence_all.png     best-f curves overlaid for all samples
     parallel_coords.png     parallel-coordinates of (params -> best_f_final)
 
@@ -36,7 +42,11 @@ Outputs written to tools/output/tune_de/:
 import argparse
 import csv
 import gc
+import multiprocessing as mp
+import pickle
 import sys
+import time
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 
 import numpy as np
@@ -52,7 +62,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from cl3o.Constants import DE_HYPERPAR
 
 # Utilities
-from cl3o.paths import DATA_DIR
+from cl3o.paths import DATA_DIR, OUTPUTS_DIR as _CLEO_OUT_DIR
 from cl3o.utils.oppoints import OppData
 
 # Geometry
@@ -77,18 +87,21 @@ from cl3o.main import RunCLEO, _resolve_db_specs, DatabaseSpec, MainHelpers
 # ================================================================================
 
 _AIRCRAFT    = "DA62"
-_N_SAMPLES   = 10      # LHS sample size (override with --samples)
+_N_SAMPLES   = 20      # LHS sample size (override with --samples)
 _K_MAX_TUNE  = 200
-_BASE_SEED   = 100     # seed offset; sample i uses _BASE_SEED + i
-_OUT_DIR     = Path(__file__).resolve().parent / "output" / "tune_de2"
+_BASE_SEED   = 42     # seed offset; sample i uses _BASE_SEED + i
+_SWEEP_NAME  = "tune-de-3"
+_OUT_DIR     = Path(__file__).resolve().parent / "output" / _SWEEP_NAME
 
-# Hard ceiling on the shared geometry/beam memoization caches. The caches are
-# keyed by per-candidate design variables, so each distinct DE trial adds
-# n_sta entries that are otherwise never evicted; across a full sweep this
-# grows without bound and dominates RAM. When the geometry cache exceeds this
-# many entries (checked at each generation boundary), both caches are cleared
-# together (see _reset_pipeline_caches).
-_CACHE_MAX_ENTRIES = 20_000
+# Samples run in isolated child processes so the OS fully reclaims each
+# sample's RAM (caches, numpy buffers, fragmented arenas) when the child
+# exits. _BATCH controls how many samples a child handles before it is
+# recycled: 1 = a fresh interpreter per sample (max isolation, reloads the
+# database each time); higher amortizes the database load at the cost of
+# letting that many samples' peak RAM coexist. The in-process geometry/beam
+# caches are also bounded LRUs (Constants.GEOM/BEAM_CACHE_MAXSIZE), so RAM is
+# capped even within a single long sample.
+_BATCH = 1     # samples per child process (override with --batch)
 
 # Ranges for each hyper-parameter
 _PARAM_RANGES: dict[str, tuple] = {
@@ -139,8 +152,8 @@ def _build_runner(k_max: int) -> RunCLEO:
         aircraft_name  = _AIRCRAFT,
         opt_name       = "tune_de",
         db_specs       = db_specs,
-        de_hyperpar    = {**DE_HYPERPAR, "NP": 4, "k_max": k_max},
-        runner_options = {"pipeline_logging": False, "enable_logging": True,
+        de_hyperpar    = DE_HYPERPAR,
+        runner_options = {"pipeline_logging": False, "enable_logging": False,
                           "live_plot": False},
     )
 
@@ -211,19 +224,26 @@ def _lhs_samples(
 # ================================================================================
 
 def _run_sample(
-    idx    : int,
-    params : dict,
-    runner : RunCLEO,
-    k_max  : int,
+    idx     : int,
+    params  : dict,
+    runner  : RunCLEO,
+    k_max   : int,
+    out_dir : Path | None = None,
 ) -> dict:
     '''
     Execute one DE run with the given hyper-parameters and record metrics.
 
+    When `out_dir` is provided the function also:
+      - pickles the last-generation RuntimeData to
+        ``out_dir/gen_<n_gens:04d>.pkl``;
+      - writes ``out_dir/rate.csv`` with per-generation convergence rate.
+
     Args:
-        idx:    Sample index (used to derive the RNG seed).
-        params: Dict with keys NP, CR, F, lambda.
-        runner: Shared RunCLEO instance (evaluator and bounds are reused).
-        k_max:  Maximum generations for this run.
+        idx:     Sample index (used to derive the RNG seed).
+        params:  Dict with keys NP, CR, F, lambda.
+        runner:  Shared RunCLEO instance (evaluator and bounds are reused).
+        k_max:   Maximum generations for this run.
+        out_dir: Optional per-sample output directory.
 
     Returns:
         Dict of convergence metrics; includes "_best_f_hist" (list, not in CSV).
@@ -234,6 +254,7 @@ def _run_sample(
     # Start every sample from empty caches so independent runs never
     # accumulate each other's geometry/beam entries.
     _reset_pipeline_caches(runner)
+    t_start = time.perf_counter()
 
     hypar = {
         "NP":             params["NP"],
@@ -258,29 +279,45 @@ def _run_sample(
         runner.evaluator(X)
         return bool(runner.runtime.fitness.is_feasible)
 
-    def _bound_caches(_k: int, _snap: object) -> None:
-        # Fires at each generation boundary, after the feasibility re-evals,
-        # so within-generation cache hits are preserved. Clears both caches
-        # only once the geometry cache crosses the ceiling, keeping the
-        # convergence-driven hit rate while capping worst-case RAM.
-        if len(runner.static.geom_cache) > _CACHE_MAX_ENTRIES:
-            _reset_pipeline_caches(runner)
-
+    # The geometry/beam caches are bounded LRUs (Constants.*_CACHE_MAXSIZE),
+    # so they self-evict the least-recently-used entries and no longer need a
+    # manual per-generation ceiling check.
     run  = RunOpt(
         setup          = setup,
         feasible_check = _is_feasible,
-        on_generation  = _bound_caches,
+        on_generation  = None,
         enable_logging = True,
     )
     hist = run.history
     bf   = hist.best_f
-    f0   = float(bf[0]) if len(bf) > 0 else float("inf")
-    half = f0 * 0.5
 
+    # Extract all needed scalars/lists before freeing the DE objects.
+    n_gens       = int(hist.ng)
+    converged    = bool(hist.ng < k_max)
+    best_f_final = round(float(bf[n_gens]), 4) if len(bf) > 0 else float("nan")
+    feasible_f   = round(float(hist.feasible_f), 4)
+    bf_list      = bf.tolist()
+    best_X_last  = hist.best_X[n_gens].copy()
+
+    f0       = float(bf[0]) if len(bf) > 0 else float("inf")
     gen_half = next(
-        (int(g) for g, fv in enumerate(bf) if fv <= half),
-        int(hist.ng),
+        (int(g) for g, fv in enumerate(bf) if fv <= f0 * 0.5),
+        n_gens,
     )
+
+    elapsed_s = round(time.perf_counter() - t_start, 2)
+
+    # Persist last-generation snapshot and rate CSV when requested.
+    if out_dir is not None:
+        out_dir.mkdir(parents=True, exist_ok=True)
+        runner.evaluator(best_X_last)   # ensure runtime reflects the best design
+        pkl_path = out_dir / f"gen_{n_gens:04d}.pkl"
+        with open(pkl_path, "wb") as _fh:
+            pickle.dump(runner.runtime, _fh, protocol=pickle.HIGHEST_PROTOCOL)
+        _save_rate_csv(out_dir, bf_list, n_gens, converged)
+
+    # Release the DE population / history arrays now that all metrics are captured.
+    del bf, hist, run, setup
 
     return {
         "sample_idx":   idx,
@@ -289,13 +326,119 @@ def _run_sample(
         "F":            round(params["F"],      4),
         "lambda":       round(params["lambda"], 4),
         "k_max_budget": k_max,
-        "n_gens":       int(hist.ng),
-        "converged":    bool(hist.ng < k_max),
-        "best_f_final": round(float(bf[hist.ng]), 4) if len(bf) > 0 else float("nan"),
-        "feasible_f":   round(float(hist.feasible_f), 4),
+        "n_gens":       n_gens,
+        "converged":    converged,
+        "best_f_final": best_f_final,
+        "feasible_f":   feasible_f,
         "gen_to_half":  gen_half,
-        "_best_f_hist": bf.tolist(),
+        "elapsed_s":    elapsed_s,
+        "_best_f_hist": bf_list,
     }
+
+
+# ================================================================================
+# Subprocess worker and live result persistence
+# ================================================================================
+
+# CSV column order for results.csv (excludes the leading "_best_f_hist" key,
+# which is only used in-memory for the convergence plot).
+_RESULT_COLS = [
+    "sample_idx", "NP", "CR", "F", "lambda", "k_max_budget",
+    "n_gens", "converged", "best_f_final", "feasible_f",
+    "gen_to_half", "elapsed_s",
+]
+
+# Per-child lazily-built runner. Each child process builds the runner (one
+# database load) on its first task and reuses it for every subsequent task it
+# handles, until the pool recycles the child (max_tasks_per_child = --batch),
+# at which point the OS reclaims all of its memory.
+_WORKER_RUNNER: RunCLEO | None = None
+
+
+def _worker(payload: tuple) -> dict:
+    '''
+    Child-process entry point: build/reuse a runner and run one sample.
+
+    Args:
+        payload: Tuple (sample_idx, params_dict, k_max, sweep_name).
+
+    Returns:
+        The per-sample result dict from _run_sample (picklable; the
+        "_best_f_hist" list survives the process boundary for plotting).
+    '''
+    global _WORKER_RUNNER
+    idx, params, k_max, sweep_name = payload
+    if _WORKER_RUNNER is None:
+        _WORKER_RUNNER = _build_runner(k_max=k_max)
+    sample_dir = (
+        _CLEO_OUT_DIR / f"{_AIRCRAFT.lower()}_{sweep_name}_LHS-{idx}"
+    )
+    res = _run_sample(idx, params, _WORKER_RUNNER, k_max, out_dir=sample_dir)
+    # Help the child release this sample's transient allocations before the
+    # next task it may handle within the same (un-recycled) process.
+    _reset_pipeline_caches(_WORKER_RUNNER)
+    gc.collect()
+    return res
+
+
+def _append_result_row(csv_path: Path, res: dict) -> None:
+    '''
+    Append one result row to results.csv, writing the header if the file is new.
+
+    Flushed immediately so a crash mid-sweep keeps every completed sample.
+
+    Args:
+        csv_path: Destination results.csv path.
+        res:      One per-sample result dict.
+    '''
+    new_file = not csv_path.exists()
+    with open(csv_path, "a", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=_RESULT_COLS)
+        if new_file:
+            writer.writeheader()
+        writer.writerow({k: res[k] for k in _RESULT_COLS})
+
+
+def _save_rate_csv(
+    out_dir   : Path,
+    bf_list   : list,
+    n_gens    : int,
+    converged : bool,
+) -> None:
+    '''
+    Write per-generation rate-of-convergence CSV for one LHS sample.
+
+    Columns:
+        k       generation index (0-based)
+        best_f  best penalised fitness at generation k
+        rate    relative decrease vs previous generation:
+                (best_f[k-1] - best_f[k]) / |best_f[k-1]|  (0.0 at k=0)
+        conv    Y on the generation that triggered early stop, N otherwise
+
+    Args:
+        out_dir  : Destination directory (per-sample).
+        bf_list  : best_f history list of length n_gens + 1.
+        n_gens   : Number of generations actually executed.
+        converged: True when the run stopped before k_max.
+    '''
+    csv_path = out_dir / "rate.csv"
+    with open(csv_path, "w", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=["k", "best_f", "rate", "conv"])
+        writer.writeheader()
+        for k in range(n_gens + 1):
+            bf = float(bf_list[k])
+            if k == 0:
+                rate = 0.0
+            else:
+                prev = float(bf_list[k - 1])
+                rate = (prev - bf) / max(abs(prev), 1e-12)
+            conv = "Y" if (k == n_gens and converged) else "N"
+            writer.writerow({
+                "k":      k,
+                "best_f": round(bf,   6),
+                "rate":   round(rate, 6),
+                "conv":   conv,
+            })
 
 
 # ================================================================================
@@ -408,14 +551,23 @@ def main() -> None:
                         help=f"Number of LHS samples (default {_N_SAMPLES}).")
     parser.add_argument("--kmax",    type=int, default=_K_MAX_TUNE,
                         help=f"DE generation budget per sample (default {_K_MAX_TUNE}).")
+    parser.add_argument("--batch",   type=int, default=_BATCH,
+                        help=f"Samples per child process before it is recycled "
+                             f"(default {_BATCH}; 1 = fresh interpreter per sample).")
+    parser.add_argument("--name",    type=str, default=_SWEEP_NAME,
+                        help=f"Sweep name used for output subdirectory names "
+                             f"(default '{_SWEEP_NAME}').")
+    parser.add_argument("--seed",    type=int, default=0,
+                        help="RNG seed for LHS sampling (default 0).")
     args = parser.parse_args()
 
-    _OUT_DIR.mkdir(parents=True, exist_ok=True)
+    out_dir = Path(__file__).resolve().parent / "output" / args.name
+    out_dir.mkdir(parents=True, exist_ok=True)
 
-    rng         = np.random.default_rng(0)
+    rng         = np.random.default_rng(args.seed)
     params_list = _lhs_samples(args.samples, _PARAM_RANGES, rng)
 
-    csv_lhs = _OUT_DIR / "lhs_samples.csv"
+    csv_lhs = out_dir / "lhs_samples.csv"
     with open(csv_lhs, "w", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=list(_PARAM_RANGES.keys()))
         writer.writeheader()
@@ -427,57 +579,72 @@ def main() -> None:
         print(f"{i:>4}  {p['NP']:>4}  {p['CR']:>6.3f}  {p['F']:>6.3f}  "
               f"{p['lambda']:>6.3f}")
 
-    print(f"\nLoading CL3O databases ...")
-    runner = _build_runner(k_max=args.kmax)
+    # Start each sweep from a clean results.csv; rows are appended live as
+    # each sample completes (see _append_result_row).
+    csv_res = out_dir / "results.csv"
+    if csv_res.exists():
+        csv_res.unlink()
 
+    print(f"\nRunning {args.samples} samples in isolated child processes "
+          f"(recycle every {args.batch}); databases load once per child ...")
+
+    # max_workers=1 keeps a single heavy FEA job in flight at a time (peak RAM
+    # = one sample). max_tasks_per_child=--batch recycles the child so the OS
+    # reclaims its memory. "spawn" is the cross-platform-safe start method.
+    ctx     = mp.get_context("spawn")
     results: list[dict] = []
-    for idx, params in enumerate(params_list):
-        print(
-            f"\n[{idx+1}/{args.samples}] NP={params['NP']}  CR={params['CR']:.3f}"
-            f"  F={params['F']:.3f}  lam={params['lambda']:.3f}  ...",
-            end=" ", flush=True,
-        )
-        try:
-            res = _run_sample(idx, params, runner, args.kmax)
+    with ProcessPoolExecutor(
+        max_workers         = 1,
+        max_tasks_per_child = max(1, args.batch),
+        mp_context          = ctx,
+    ) as ex:
+        fut_to_idx = {
+            ex.submit(_worker, (idx, params, args.kmax, args.name)): idx
+            for idx, params in enumerate(params_list)
+        }
+        for fut in as_completed(fut_to_idx):
+            idx    = fut_to_idx[fut]
+            params = params_list[idx]
+            try:
+                res = fut.result()
+            except Exception as exc:
+                print(f"[{idx+1}/{args.samples}] NP={params['NP']} "
+                      f"CR={params['CR']:.3f} F={params['F']:.3f} "
+                      f"lam={params['lambda']:.3f}  ERROR: {exc}")
+                continue
             results.append(res)
+            _append_result_row(csv_res, res)   # live save after each sample
             feas_tag = "feasible" if res["feasible_f"] < 1e10 else "--"
             stop_tag = " (early stop)" if res["converged"] else ""
-            print(f"best_f={res['best_f_final']:.4f}  gens={res['n_gens']}"
-                  f"  {feas_tag}{stop_tag}")
-        except Exception as exc:
-            print(f"ERROR: {exc}")
-        finally:
-            # Release this sample's cached geometry/beam entries before the
-            # next run so peak RSS tracks a single sample, not the whole sweep.
-            _reset_pipeline_caches(runner)
-            gc.collect()
+            print(f"[{idx+1}/{args.samples}] NP={params['NP']} "
+                  f"CR={params['CR']:.3f} F={params['F']:.3f} "
+                  f"lam={params['lambda']:.3f}  best_f={res['best_f_final']:.4f} "
+                  f"gens={res['n_gens']} {feas_tag}{stop_tag} "
+                  f"{res['elapsed_s']:.1f}s  -> saved")
 
     if not results:
         print("No successful runs. Exiting.")
         return
 
-    csv_cols = [k for k in results[0].keys() if not k.startswith("_")]
-    csv_res  = _OUT_DIR / "results.csv"
-    with open(csv_res, "w", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=csv_cols)
-        writer.writeheader()
-        for r in results:
-            writer.writerow({k: r[k] for k in csv_cols})
+    # Restore sample order (as_completed yields in completion order) so plots
+    # line up with params_list regardless of pool scheduling.
+    results.sort(key=lambda r: r["sample_idx"])
+    plot_params = [params_list[r["sample_idx"]] for r in results]
     print(f"\nResults saved -> {csv_res}")
 
-    _plot_convergence(results, params_list, args.kmax, _OUT_DIR)
-    _plot_parallel_coords(results, _OUT_DIR)
+    _plot_convergence(results, plot_params, args.kmax, out_dir)
+    _plot_parallel_coords(results, out_dir)
 
     print(f"\n{'#':>3}  {'NP':>4}  {'CR':>5}  {'F':>5}  {'lam':>5}  "
-          f"{'gens':>5}  {'best_f':>10}  {'feas_f':>10}  {'conv':>5}")
-    print("-" * 65)
+          f"{'gens':>5}  {'best_f':>10}  {'feas_f':>10}  {'conv':>5}  {'time(s)':>8}")
+    print("-" * 75)
     for r in sorted(results, key=lambda x: x["best_f_final"]):
         feas = f"{r['feasible_f']:.4f}" if r["feasible_f"] < 1e10 else "   --"
         print(
             f"{r['sample_idx']:>3}  {r['NP']:>4}  {r['CR']:>5.3f}  "
             f"{r['F']:>5.3f}  {r['lambda']:>5.3f}  "
             f"{r['n_gens']:>5}  {r['best_f_final']:>10.4f}  "
-            f"{feas:>10}  {'Y' if r['converged'] else 'N':>5}"
+            f"{feas:>10}  {'Y' if r['converged'] else 'N':>5}  {r['elapsed_s']:>8.1f}"
         )
 
     print("\nDone.")

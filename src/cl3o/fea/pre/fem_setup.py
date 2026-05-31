@@ -28,9 +28,11 @@ import numpy as np
 
 # Const
 from cl3o import Constants
+from cl3o.Constants import BEAM_CACHE_MAXSIZE
 
 # Utilities
 from cl3o.utils import io_utils as io
+from cl3o.utils.lru_cache import LRUCache
 
 # Geometry
 from cl3o.geometry.wing import LerpWingData
@@ -73,9 +75,13 @@ class FemPreprocessData:
     loads : dict = None
 
     # Per-element BeamData+T-matrix cache shared across all DE evaluations.
-    # Key: (id(geomA), id(geomB), release_code) — safe because GeomData objects
-    # in StaticData.geom_cache are never evicted (plain dict, no LRU).
-    beam_cache : dict = field(default_factory=dict)
+    # Key: (geomA.cache_key, geomB.cache_key, release_code, use_offset) — keyed
+    # on geometry content (stamped by SectionBuilder), so this cache stays
+    # valid even when the geometry cache evicts and rebuilds a section. Bounded
+    # LRU caps RAM on long sweeps. See Constants.BEAM_CACHE_MAXSIZE.
+    beam_cache : LRUCache = field(
+        default_factory=lambda: LRUCache(BEAM_CACHE_MAXSIZE)
+    )
 
 
 
@@ -91,9 +97,10 @@ class FemSetup:
         lerp_wing_db : LerpWingData,
         wing_side : str = Constants.WING_SIDE,
         enable_logging : bool = True,
+        verbose        : bool = False,
     ) -> None:
-        self.logger = io.setup_logger(self, enable_logging)
-        self.logger.info("Constructing default mesh paremeters...")
+        self.logger = io.setup_logger(self, enable_logging, verbose)
+        self.logger.info(f"Building FEM pre-process artefacts (wing side: {wing_side}).")
 
         self.exloads_data = exloads_db
         self.wng_data = lerp_wing_db
@@ -103,6 +110,11 @@ class FemSetup:
         self._retrieve_loads()
 
         self.fem_setup = self._pack_fem_setup()
+        self.logger.info(
+            f"FEM pre-process ready "
+            f"[{self.n} nodes, {self.m} elements, "
+            f"{self.nc} load conditions]."
+        )
     
     # ----------------------------------------
     # Private method - Build up orchestrator

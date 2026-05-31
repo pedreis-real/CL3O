@@ -118,8 +118,9 @@ class MeshBuilder:
         data : tuple[object, object],
         use_offset     : bool = True,
         enable_logging : bool = True,
+        verbose        : bool = False,
     ) -> None:
-        self.logger = io.setup_logger(self, enable_logging)
+        self.logger = io.setup_logger(self, enable_logging, verbose)
 
         # Unpack inputs
         fem_setup = data[0]
@@ -162,7 +163,7 @@ class MeshBuilder:
         '''Build per-element matrices and saves into MeshData.'''
         n, m, dof, mcn = self.n, self.m, self.dof, self.mcn
 
-        self.logger.info(
+        self.logger.debug(
             "Assembling global stiffness matrix "
             f"[n={n} nodes, m={m} elements, dof={dof}]"
         )
@@ -186,9 +187,13 @@ class MeshBuilder:
             rls    = int(2 * conn_i[2] + conn_i[3])
 
             # Step 3. Beam element — use cache when geomA/geomB are reused.
-            # Cache key uses object identity: GeomData objects are kept alive
-            # by StaticData.geom_cache so id() values are stable.
-            beam_key = (id(geomA), id(geomB), rls, self.use_offset)
+            # Key on the GeomData content key (set by SectionBuilder) so the
+            # beam cache stays valid even when the geometry cache evicts and
+            # later rebuilds an identical section. Fall back to id() for any
+            # direct-construction path that did not populate cache_key.
+            keyA = geomA.cache_key if geomA.cache_key is not None else id(geomA)
+            keyB = geomB.cache_key if geomB.cache_key is not None else id(geomB)
+            beam_key = (keyA, keyB, rls, self.use_offset)
             cached   = self.beam_cache.get(beam_key)
 
             ei  = mcn[i]

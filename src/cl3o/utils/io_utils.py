@@ -33,8 +33,11 @@ _ENABLE_INNER_DEBUG_LOGGING = True
 
 
 # ================ Module logger ================
+# All io_logger messages are emitted at DEBUG (file-I/O traces). The default
+# level is therefore INFO so they stay hidden on a normal enable_logging run;
+# set_io_verbose(True) (wired to pipeline_logging) drops it to DEBUG.
 io_logger = logging.getLogger("cl3o.utils.io")
-io_logger.setLevel(logging.DEBUG if _ENABLE_INNER_DEBUG_LOGGING else logging.CRITICAL)
+io_logger.setLevel(logging.INFO if _ENABLE_INNER_DEBUG_LOGGING else logging.CRITICAL)
 
 if _ENABLE_INNER_DEBUG_LOGGING and not io_logger.handlers:
     _handler = logging.StreamHandler()
@@ -44,6 +47,17 @@ if _ENABLE_INNER_DEBUG_LOGGING and not io_logger.handlers:
     ))
     io_logger.addHandler(_handler)
     io_logger.propagate = False
+
+
+def set_io_verbose(verbose: bool) -> None:
+    '''
+    Toggle the io module logger between DEBUG (verbose) and INFO (quiet).
+
+    The per-file conversion traces are DEBUG-level, so they only surface when
+    verbose is True (driven by the pipeline_logging runner option).
+    '''
+    if _ENABLE_INNER_DEBUG_LOGGING:
+        io_logger.setLevel(logging.DEBUG if verbose else logging.INFO)
 
 
 # =============================================================================
@@ -86,7 +100,7 @@ def _to_dict(dcls_obj: object) -> dict[str, np.ndarray]:
             str(Arg3): value3
         }
     '''
-    io_logger.info(
+    io_logger.debug(
         f"Converting {dcls_obj.__class__.__name__} instance into dictionary"
         f" to serialize JSON file."
     )
@@ -219,16 +233,25 @@ _NULL_LOGGER.propagate = False
 
 def setup_logger(
         obj: str | type,
-        enable_logging: bool
+        enable_logging: bool,
+        verbose: bool = False,
 ) -> logging.Logger:
     '''
     Sets up logger for the 'obj' class.
 
+    The level encodes the INFO / DEBUG distinction: a normal enabled logger
+    runs at INFO (the user-facing step narrative), while a verbose logger
+    drops to DEBUG to expose per-element / per-station diagnostics. WARNING
+    and ERROR are always visible on an enabled logger.
+
     Args:
-        enable_logging: Enable (True) / Disable (False) logging.
+        enable_logging: Enable (True) / Disable (False) logging. When False,
+            the shared null logger is returned (no handler, no overhead) to
+            keep the DE inner loop fast.
+        verbose: When True, set the level to DEBUG; otherwise INFO.
 
     Returns:
-        Configured logger instance.
+        Configured logger instance named "cl3o.<ClassName>".
     '''
     if not enable_logging:
         return _NULL_LOGGER
@@ -242,8 +265,11 @@ def setup_logger(
     else:
         raise TypeError("obj must be a class, instance, or string")
 
-    logger = logging.getLogger(f"{name}_{hex(id(obj))}")
-    logger.setLevel(logging.DEBUG)
+    logger = logging.getLogger(f"cl3o.{name}")
+    # Re-applied on every call so a later verbose=True caller can raise the
+    # level of an already-created logger (last writer wins).
+    logger.setLevel(logging.DEBUG if verbose else logging.INFO)
+    logger.propagate = False
 
     if not logger.handlers:
         handler = logging.StreamHandler()
@@ -326,7 +352,7 @@ def read_json(
     with open(path, "r", encoding="utf-8") as f:
         data = json.load(f)
 
-    io_logger.info(f"Converting {path} into {dcls.__name__}.")
+    io_logger.debug(f"Converting {path} into {dcls.__name__}.")
     return _to_dataclass(data, dcls)
 
 
@@ -367,7 +393,7 @@ def write_json(
     with open(path, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=indent, default=_convert, ensure_ascii=False)
         
-        io_logger.info(f"Database saved in filepath: {path}.")
+        io_logger.debug(f"Database saved in filepath: {path}.")
 
 
 

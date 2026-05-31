@@ -128,6 +128,7 @@ class Penalty:
         k : Optional[float] = PENALTY_VARS["k"],
         v0 : Optional[float] = PENALTY_VARS["v0"],
         enable_logging : bool  = True,
+        verbose        : bool  = False,
     ) -> None:
         '''
         Args:
@@ -137,8 +138,9 @@ class Penalty:
             psi1          : P(v1)/L fraction at v1.
             psi2          : P(v2)/L fraction at v2.
             enable_logging: Toggle logger.
+            verbose       : When True, log at DEBUG level.
         '''
-        self.logger = io.setup_logger(self, enable_logging)
+        self.logger = io.setup_logger(self, enable_logging, verbose)
 
         failure_data, disp_data = data
 

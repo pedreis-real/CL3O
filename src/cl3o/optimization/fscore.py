@@ -91,6 +91,7 @@ class StructuralMass:
         element_idx    : np.ndarray,
         laminate_db    : dict[str, LaminateData],
         enable_logging : bool = True,
+        verbose        : bool = False,
     ) -> None:
         '''
         Args:
@@ -100,8 +101,9 @@ class StructuralMass:
                 sections.sec_data.
             laminate_db   : Dict mapping 'MAT{k}' to LaminateData.
             enable_logging: Toggle logger.
+            verbose       : When True, log at DEBUG level.
         '''
-        self.logger = io.setup_logger(self, enable_logging)
+        self.logger = io.setup_logger(self, enable_logging, verbose)
 
         # Store inputs
         self.sec_data    = sections.sec_data

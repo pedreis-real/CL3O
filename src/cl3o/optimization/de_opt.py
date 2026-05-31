@@ -45,7 +45,7 @@ import numpy as np
 
 # Constants
 from cl3o.Constants import (
-    DE_HYPERPAR, OPT_LIMS, TOL, N_SEG_T1, DEDUP_TOL, STALL_REL_TOL,
+    DE_HYPERPAR, OPT_LIMS, TOL, N_SEG_T1, STALL_REL_TOL,
 )
 
 # Utilities
@@ -411,6 +411,7 @@ class SetupOpt:
         bounds_lo      : np.ndarray | None = None,
         bounds_hi      : np.ndarray | None = None,
         enable_logging : bool = True,
+        verbose        : bool = False,
     ) -> None:
         '''
         Args:
@@ -423,8 +424,9 @@ class SetupOpt:
             bounds_lo     : (D,) lower bound per design variable.
             bounds_hi     : (D,) upper bound per design variable.
             enable_logging: Toggle logger.
+            verbose       : When True, log at DEBUG level.
         '''
-        self.logger = io.setup_logger(self, enable_logging)
+        self.logger = io.setup_logger(self, enable_logging, verbose)
 
         NP    = int  (de_hyperpar.get('NP',       DE_HYPERPAR['NP'      ]))
         CR    = float(de_hyperpar.get('CR',       DE_HYPERPAR['CR'      ]))
@@ -455,7 +457,7 @@ class SetupOpt:
         # -------- 2. Seed initial population --------
         X0 = self._initial_pop(NP, lo, hi, self.rng)
 
-        self.logger.debug(
+        self.logger.info(
             f"DE setup ready.\n"
             f"| D      : {D}\t"
             f"| NP     : {NP}\t"
@@ -589,6 +591,7 @@ class RunOpt:
         out_dir        : str | Path | None = None,
         run_label      : str = "",
         enable_logging : bool = True,
+        verbose        : bool = False,
     ) -> None:
         '''
         Args:
@@ -613,8 +616,10 @@ class RunOpt:
             run_label     : Free-form label written into manifest.json
                 (typically `<aircraft>_<opt>`).
             enable_logging: Toggle logger.
+            verbose       : When True, log at DEBUG level (per-generation
+                diagnostics, which re-evaluate the best individual).
         '''
-        self.logger = io.setup_logger(self, enable_logging)
+        self.logger = io.setup_logger(self, enable_logging, verbose)
         self.setup          = setup
         self.feasible_check = feasible_check
         self.on_generation  = on_generation
@@ -726,6 +731,13 @@ class RunOpt:
 
             self._archive_generation(k, X, f, last_i=last_eval)
 
+            self.logger.info(
+                f"gen {k:>4}/{k_max} | best={best_f_hist[k]:.4f} "
+                f"| mean={mean_f_hist[k]:.4f} | std={std_f_hist[k]:.4f}"
+                + (f" | feasible={feas_best_f:.4f}"
+                   if feas_best_f < float('inf') else "")
+            )
+
             if self.logger.isEnabledFor(logging.DEBUG):
                 if self.archiver is None and self.runtime_data is not None:
                     curr_best_i = int(np.argmin(f))
@@ -745,9 +757,9 @@ class RunOpt:
                 )
                 break
             if self._stalled(k, best_f_hist):
-                self.logger.info(
-                    f"DE early-stop at gen {k} "
-                    f"(stall_patience={self.stall_patience} reached)."
+                self.logger.warning(
+                    f"[CL3O] DE early-stop at gen {k} - best fitness "
+                    f"plateaued (stall_patience={self.stall_patience} reached)."
                 )
                 break
 
@@ -810,11 +822,11 @@ class RunOpt:
         '''
         if self.stall_patience <= 0 or k < self.stall_patience:
             return False
-        ref  = float(best_f_hist[k - self.stall_patience])
-        curr = float(best_f_hist[k])
+        refefence  = float(best_f_hist[k - self.stall_patience])
+        current = float(best_f_hist[k])
         # No improvement = curr is not meaningfully smaller than ref.
-        delta = ref - curr
-        return delta <= STALL_REL_TOL * max(1.0, abs(ref))
+        delta = refefence - current
+        return delta <= STALL_REL_TOL * max(1.0, abs(refefence))
 
     def _emit_snapshot(
         self,
