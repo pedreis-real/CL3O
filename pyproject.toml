@@ -40,6 +40,10 @@ ui = [
 desktop = [
     "pywebview>=5.0",
 ]
+# Post-hoc results analysis / visualization (cl3o.utils.stats).
+analysis = [
+    "seaborn>=0.13",
+]
 # Test / development tooling.
 dev = [
     "pytest>=8.0",
