@@ -51,6 +51,14 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e ".[ui,dev]"
 
+      - name: Stress-analysis frame-consistency gate
+        run: >
+          pytest
+          tests/test_geom_properties.py::test_geom_local_boom_frame_diagonalizes
+          tests/test_geom_properties.py::test_geom_local_stress_constants
+          tests/test_stress_recovery.py::test_local_vs_global_normal_stress
+          -q --tb=short
+
       - name: Run slow + integration tests
         run: pytest -m "slow or integration" -q --tb=short
 

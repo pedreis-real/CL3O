@@ -130,6 +130,7 @@ class StressRecovery:
         fea_results : FeaResults,
         use_local_in_sr : bool = True,
         enable_logging : bool = True,
+        verbose        : bool = False,
     ) -> None:
         '''
         Args:
@@ -139,7 +140,7 @@ class StressRecovery:
                           indices in sec_data. Equivalent to mesh.conn[:, :2].
             fea_results : FeaResults from LinearStaticSolver.
         '''
-        self.logger = io.setup_logger(self, enable_logging)
+        self.logger = io.setup_logger(self, enable_logging, verbose)
 
         # 1.Retrieve inputs
         self.use_local_in_sr = use_local_in_sr
@@ -213,22 +214,33 @@ class StressRecovery:
         N  : float,
         MX : float,
         MZ : float,
+        use_local : bool = False,
     ) -> np.ndarray:
         '''
-        Direct stress at every boom position 
+        Direct stress at every boom position
+
+        When use_local is True the moments (MX, MZ) are taken in the
+        beam-local (principal) frame, so the local-frame bending
+        constants (IXstar_loc, IZstar_loc), built from the rotated boom
+        coordinates (boom_y, boom_z), are used. Otherwise the global-frame
+        constants (IXstar, IZstar) are used.
 
         Args:
             sec: Section GeomData.
             N  : Axial force [N].
-            MX : Bending moment about global X axis [N*mm].
-            MZ : Bending moment about global Z axis [N*mm].
+            MX : Bending moment about X axis (global or local My) [N*mm].
+            MZ : Bending moment about Z axis (global or local Mz) [N*mm].
+            use_local : Select beam-local-frame bending constants.
 
         Returns:
             sigma_booms : direct stresses in MPa.
         '''
+        IXstar = sec.IXstar_loc if use_local else sec.IXstar
+        IZstar = sec.IZstar_loc if use_local else sec.IZstar
+
         sigma  = (N / sec.A)
-        sigma += sec.IXstar * MX
-        sigma += sec.IZstar * MZ
+        sigma += IXstar * MX
+        sigma += IZstar * MZ
         return sigma
     
     @staticmethod
@@ -308,7 +320,7 @@ class StressRecovery:
         m = self.fea.m
         nc = self.fea.nc
 
-        self.logger.info(
+        self.logger.debug(
             f"Recovering stresses "
             f"[m={m} elements, nc={nc} load conditions]"
         )
@@ -359,6 +371,7 @@ class StressRecovery:
                     N=N,
                     MX=M1,
                     MZ=M2,
+                    use_local=self.use_local_in_sr,
                 )
 
                 # Step 5: Shear flow
@@ -399,6 +412,7 @@ class StressRecovery:
                     N=N,
                     MX=M1,
                     MZ=M2,
+                    use_local=self.use_local_in_sr,
                 )
 
                 # Step 5: Shear flow

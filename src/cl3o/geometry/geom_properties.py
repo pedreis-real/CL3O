@@ -104,10 +104,14 @@ class GeomData:
     boom_Zc         (1,)        Boom centroid Z                         mm
     boom_u          (7,)        Boom u-coords (centroidal)              mm
     boom_w          (7,)        Boom w-coords (centroidal)              mm
+    boom_y          (7,)        Boom y-coords (beam-local, c_rad rot)   mm
+    boom_z          (7,)        Boom z-coords (beam-local, c_rad rot)   mm
     boom_A          (7,)        Boom areas                              mm^2
     stress_ratios   dict        Per-boom Megson stress ratio lists      -
     IXstar          (N_BOOMS,)  Per-boom coefficient of MX in sigma     mm^-4
     IZstar          (N_BOOMS,)  Per-boom coefficient of MZ in sigma     mm^-4
+    IXstar_loc      (N_BOOMS,)  Per-boom coeff of local My in sigma     mm^-4
+    IZstar_loc      (N_BOOMS,)  Per-boom coeff of local Mz in sigma     mm^-4
     S_XYZ           (3,)        Shear centre [Xs, Y_sta, Zs]            mm
     S_uvw           (3,)        Shear centre [us, 0, ws] (centroid)     mm
     qsX_star        (10,)       Shear flux per unit S_X                 1/mm
@@ -139,6 +143,7 @@ class GeomData:
     P_uvw           (4,2)       Key-point positions (centroidal)        mm
     skew_matrix     (3,3)       Antissimetrical matrix (C -> SC)        mm
     skew_matrix_ac  (3,3)       Antissimetrical matrix (AC -> SC)       mm
+    cache_key       tuple       Content key in geom_cache (or None)     -
     '''
     chord   : float = 0.0
     xw1     : float = 0.0
@@ -173,9 +178,13 @@ class GeomData:
     boom_Zc   : float = 0.0
     boom_u    : np.ndarray = field(default_factory=lambda: np.zeros(N_BOOMS))
     boom_w    : np.ndarray = field(default_factory=lambda: np.zeros(N_BOOMS))
+    boom_y    : np.ndarray = field(default_factory=lambda: np.zeros(N_BOOMS))
+    boom_z    : np.ndarray = field(default_factory=lambda: np.zeros(N_BOOMS))
     boom_A    : np.ndarray = field(default_factory=lambda: np.zeros(N_BOOMS))
     IXstar    : np.ndarray = field(default_factory=lambda: np.zeros(N_BOOMS))
     IZstar    : np.ndarray = field(default_factory=lambda: np.zeros(N_BOOMS))
+    IXstar_loc : np.ndarray = field(default_factory=lambda: np.zeros(N_BOOMS))
+    IZstar_loc : np.ndarray = field(default_factory=lambda: np.zeros(N_BOOMS))
     stress_ratios  : dict[str, list] = field(
         default_factory=lambda: {f'B{i}': [] for i in range(1, N_BOOMS+1)}
     )
@@ -227,6 +236,11 @@ class GeomData:
     skew_matrix    : np.ndarray = field(default_factory=lambda: np.zeros((3,3)))
     skew_matrix_ac : np.ndarray = field(default_factory=lambda: np.zeros((3,3)))
 
+    # Content key under which this object is stored in StaticData.geom_cache.
+    # Set by SectionBuilder; lets the beam cache key on geometry content rather
+    # than id(), so both caches can evict independently without false hits.
+    cache_key : tuple | None = None
+
 
 # ================================================================================
 # PUBLIC API - Geometrical properties calculator
@@ -251,8 +265,9 @@ class GeomPropCalculator:
         recalculate_props : bool = True,
         use_boom_centroid : bool = False,
         enable_logging    : bool = True,
+        verbose           : bool = False,
     ) -> None:
-        self.logger = io.setup_logger(self, enable_logging)
+        self.logger = io.setup_logger(self, enable_logging, verbose)
         self.recalculate_props = recalculate_props
         self.use_boom_centroid = use_boom_centroid
         self.LE_xz = (
@@ -1144,6 +1159,25 @@ class GeomPropCalculator:
 
         where (u_i, w_i) are the boom coordinates relative to the
         centroid. Both arrays have shape (N_BOOMS,).
+
+        A parallel set is built in the beam-local (principal) frame for
+        use when the recovered internal moments are taken in that frame
+        (StressRecovery with use_local_in_sr=True). The local boom
+        coordinates (boom_y, boom_z) are (boom_u, boom_w) rotated about
+        the centroid into the beam-local axes. The rotation matches the
+        web-angle rotation R_c = rot3(c_rad) used by BeamElement, so that
+        Sum(A * z^2) = I_2 (local y, minor) and Sum(A * y^2) = I_1 (local
+        z, major) and the boom cross-inertia Sum(A * y * z) vanishes:
+
+            boom_y = boom_u * cos(c) - boom_w * sin(c)
+            boom_z = boom_u * sin(c) + boom_w * cos(c)
+
+        In the principal frame IXZ vanishes and the axis inertias are the
+        principal ones (Iy = I_2 about local y, Iz = I_1 about local z,
+        matching BeamElement), so den_loc = I_1 * I_2 and
+
+            IXstar_loc_i = (I_1 * z_i) / den_loc = z_i / I_2  (coeff of My)
+            IZstar_loc_i = (I_2 * y_i) / den_loc = y_i / I_1  (coeff of Mz)
         '''
         IXX = self.I_XX
         IZZ = self.I_ZZ
@@ -1152,6 +1186,18 @@ class GeomPropCalculator:
         den = IXX * IZZ - IXZ * IXZ
         self.IXstar = (IZZ * self.boom_w - IXZ * self.boom_u) / den
         self.IZstar = (IXX * self.boom_u - IXZ * self.boom_w) / den
+
+        # Beam-local (principal) frame: rotate boom coords by c_rad,
+        # consistent with BeamElement R_c = rot3(c_rad).
+        c  = self.c_rad
+        cc = np.cos(c)
+        ss = np.sin(c)
+        self.boom_y = cc * self.boom_u - ss * self.boom_w
+        self.boom_z = ss * self.boom_u + cc * self.boom_w
+
+        den_loc = self.I_1 * self.I_2
+        self.IXstar_loc = (self.I_1 * self.boom_z) / den_loc
+        self.IZstar_loc = (self.I_2 * self.boom_y) / den_loc
 
 
     # ----------------------------------------------------------------
@@ -1214,9 +1260,13 @@ class GeomPropCalculator:
             boom_Zc   = self.boom_Zc + dZ,
             boom_u    = self.boom_u,
             boom_w    = self.boom_w,
+            boom_y    = self.boom_y,
+            boom_z    = self.boom_z,
             boom_A    = self.boom_A,
             IXstar    = self.IXstar,
             IZstar    = self.IZstar,
+            IXstar_loc = self.IXstar_loc,
+            IZstar_loc = self.IZstar_loc,
             stress_ratios = self.stress_ratios,
             S_XYZ     = np.array([self.Xs + dX, self.Y_sta, self.Zs + dZ]),
             S_uvw     = np.array([self.us, 0.0, self.ws]),
@@ -1262,7 +1312,7 @@ class GeomPropCalculator:
 
     def run(self) -> GeomData:
         '''Execute the full geometric properties pipeline.'''
-        self.logger.info(f"Computing geom properties at Y={self.Y_sta:.1f} mm")
+        self.logger.debug(f"Computing geom properties at Y={self.Y_sta:.1f} mm")
 
         # Step 1: Build dimensional airfoil
         self._scale_airfoil()

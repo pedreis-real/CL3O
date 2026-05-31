@@ -54,3 +54,27 @@ def test_recovery_matches_runtime(runtime) -> None:
     ).data
     np.testing.assert_allclose(sd2.sigma[0], runtime.stress.sigma[0],
                                rtol=0.0, atol=0.0)
+
+
+def test_local_vs_global_normal_stress(runtime) -> None:
+    '''
+    use_local selects the beam-local bending constants: the local direct
+    stress reproduces N/A + z/I_2 * My + y/I_1 * Mz, and it differs from
+    the global-frame stress whenever the section frame is rotated
+    (c_rad != 0).
+    '''
+    sec = runtime.sections.sec_data[0]
+    N, MX, MZ = 1.0e3, 5.0e5, 2.0e5
+
+    sig_g = StressRecovery._compute_boom_normal_stress(
+        sec, N, MX, MZ, use_local=False)
+    sig_l = StressRecovery._compute_boom_normal_stress(
+        sec, N, MX, MZ, use_local=True)
+
+    expected = (N / sec.A
+                + sec.boom_z / sec.I_2 * MX
+                + sec.boom_y / sec.I_1 * MZ)
+    np.testing.assert_allclose(sig_l, expected, rtol=1e-12)
+
+    if abs(float(sec.c_rad)) > 1e-6:
+        assert np.max(np.abs(sig_g - sig_l)) > 0.0

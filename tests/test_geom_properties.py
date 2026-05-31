@@ -111,3 +111,43 @@ def test_geom_properties_equivalent_moduli(airfoil_arrays) -> None:
 
     assert float(gd.E1_eq) > 0.0
     assert float(gd.G_eq) > 0.0
+
+
+def test_geom_local_boom_frame_diagonalizes(airfoil_arrays) -> None:
+    '''
+    boom_y / boom_z (boom_u / boom_w rotated about the centroid by c_rad)
+    express the booms in the beam-local principal axes, so the boom
+    inertia tensor diagonalizes onto the principal inertias:
+        sum(A * z^2) = I_2 (local y, minor)
+        sum(A * y^2) = I_1 (local z, major)
+        sum(A * y * z) ~ 0  (cross term vanishes)
+    This is the frame-consistency condition that lets StressRecovery use
+    local-frame moments against local boom coordinates.
+    '''
+    gd = _build_calculator(airfoil_arrays).run()
+
+    assert gd.boom_y.shape == (N_BOOMS,)
+    assert gd.boom_z.shape == (N_BOOMS,)
+
+    A, y, z = gd.boom_A, gd.boom_y, gd.boom_z
+    Iyy = float(np.sum(A * z**2))    # about local y -> minor I_2
+    Izz = float(np.sum(A * y**2))    # about local z -> major I_1
+    Iyz = float(np.sum(A * y * z))   # cross term -> must vanish
+
+    np.testing.assert_allclose(Iyy, gd.I_2, rtol=1e-9)
+    np.testing.assert_allclose(Izz, gd.I_1, rtol=1e-9)
+    assert abs(Iyz) <= 1e-9 * gd.I_1
+
+
+def test_geom_local_stress_constants(airfoil_arrays) -> None:
+    '''
+    Local-frame direct-stress constants match the principal-axis closed
+    form: IXstar_loc = z / I_2 (coeff of local My) and
+    IZstar_loc = y / I_1 (coeff of local Mz).
+    '''
+    gd = _build_calculator(airfoil_arrays).run()
+
+    assert gd.IXstar_loc.shape == (N_BOOMS,)
+    assert gd.IZstar_loc.shape == (N_BOOMS,)
+    np.testing.assert_allclose(gd.IXstar_loc, gd.boom_z / gd.I_2, rtol=1e-12)
+    np.testing.assert_allclose(gd.IZstar_loc, gd.boom_y / gd.I_1, rtol=1e-12)
