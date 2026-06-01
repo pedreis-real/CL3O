@@ -6,6 +6,45 @@ import type { LaminateEntry, Scene } from "../types";
 import Plot, { baseLayout, config, meshTrace, scene3d, sparEdgeTrace } from "./Plot";
 import { LAM_FAMILY_COLOR, materialColor, type LamFamily } from "./colors";
 
+interface XRow { i: number; variable: string; cp: string; value: number }
+
+function buildXRows(optvars: number[]): XRow[] {
+  const D = optvars.length;
+  const n = (D - 3) / 11;
+  if (!Number.isInteger(n) || n < 1) return [];
+  const blocks: { name: string; len: number; hasCp: boolean }[] = [
+    { name: "xw1",      len: n,     hasCp: true  },
+    { name: "xw2",      len: n,     hasCp: true  },
+    { name: "bf1_root", len: 1,     hasCp: false },
+    { name: "bf2_root", len: 1,     hasCp: false },
+    { name: "bf3_root", len: 1,     hasCp: false },
+    { name: "bf4_root", len: 1,     hasCp: false },
+    { name: "tpr",      len: n - 1, hasCp: true  },
+    { name: "ls1",      len: n,     hasCp: true  },
+    { name: "ls2",      len: n,     hasCp: true  },
+    { name: "lw1",      len: n,     hasCp: true  },
+    { name: "lw2",      len: n,     hasCp: true  },
+    { name: "lf1",      len: n,     hasCp: true  },
+    { name: "lf2",      len: n,     hasCp: true  },
+    { name: "lf3",      len: n,     hasCp: true  },
+    { name: "lf4",      len: n,     hasCp: true  },
+  ];
+  const rows: XRow[] = [];
+  let i = 0;
+  for (const blk of blocks) {
+    for (let k = 0; k < blk.len; k++) {
+      rows.push({
+        i,
+        variable: blk.name,
+        cp:       blk.hasCp ? String(k) : "—",
+        value:    optvars[i],
+      });
+      i++;
+    }
+  }
+  return rows;
+}
+
 function familyOf(scene: Scene | null, idx: number | undefined): LamFamily {
   if (scene == null || idx == null || !scene.laminate_catalog) return "OTHER";
   const entry = scene.laminate_catalog[String(Math.round(idx))];
@@ -94,13 +133,49 @@ function LayupTable({
   );
 }
 
+function XVectorTable({
+  optvars,
+  onClose,
+}: {
+  optvars: number[];
+  onClose: () => void;
+}) {
+  const rows = buildXRows(optvars);
+  return (
+    <div className="layup-table-panel" style={{ left: 200 }}>
+      <div className="layup-table-header">
+        <span>Design vector X  (D = {optvars.length})</span>
+        <button className="layup-table-close" onClick={onClose}>✕</button>
+      </div>
+      <div className="layup-table-scroll">
+        <table className="layup-table">
+          <thead>
+            <tr><th>i</th><th>Variable</th><th>CP</th><th>Value</th></tr>
+          </thead>
+          <tbody>
+            {rows.map(({ i, variable, cp, value }) => (
+              <tr key={i}>
+                <td className="idx">{i}</td>
+                <td className="name">{variable}</td>
+                <td>{cp}</td>
+                <td>{value != null ? value.toFixed(4) : "—"}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 // 3-D baseline scene: translucent left-wing skin and spar surfaces.
 // Centroid / shear-centre lines have been removed (use Cross-section view instead).
 export function GeometryPlot() {
-  const { runId, gen, publish } = useStore();
+  const { runId, gen, publish, info } = useStore();
   const [scene, setScene] = useState<Scene | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [showTable, setShowTable] = useState(false);
+  const [showXTable, setShowXTable] = useState(false);
 
   useEffect(() => {
     if (!runId) return;
@@ -239,6 +314,24 @@ export function GeometryPlot() {
           catalog={catalog}
           usedIndices={usedIndices}
           onClose={() => setShowTable(false)}
+        />
+      )}
+
+      {/* X[] table toggle button */}
+      <button
+        className="layup-table-btn"
+        style={{ left: 80 }}
+        onClick={() => setShowXTable((v) => !v)}
+        title="Show design vector table"
+      >
+        X[ ]
+      </button>
+
+      {/* Design vector overlay */}
+      {showXTable && info?.optvars && (
+        <XVectorTable
+          optvars={info.optvars}
+          onClose={() => setShowXTable(false)}
         />
       )}
 
