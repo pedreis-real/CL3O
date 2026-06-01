@@ -64,6 +64,13 @@ _PARAM_LABELS: dict[str, str] = {
     "lambda": r"$\lambda$",
 }
 
+_PARAM_RANGES: dict[str, tuple] = {
+    "NP"    : (16,  80),
+    "CR"    : (0.5, 1.0),
+    "F"     : (0.3, 1.5),
+    "lambda": (0.0, 1.0),
+}
+
 
 # ================================================================================
 # Formatting utilities
@@ -370,68 +377,134 @@ class RunStats:
 
     def _lhs_param_scatter(self, df: pd.DataFrame) -> None:
         params = [c for c in _LHS_PARAMS if c in df.columns]
-        hue    = "converged" if "converged" in df.columns else None
         df = df.copy()
         # Composite score penalises slow convergence: f* * k_conv / k_max
-        if {"best_f_final", "gen_to_half", "n_genss"}.issubset(df.columns):
-            df["_score"] = df["best_f_final"] * df["gen_to_half"] / \
+        if {"best_f_final", "gen_to_half", "n_gens"}.issubset(df.columns):
+            df["_score"] = df["best_f_final"] * df["n_gens"] / \
                            ( 400 * df["best_f_final"].min())
             y_col   = "_score"
-            y_label = r"$\frac{f^* \cdot k_{\mathrm{conv}}}{f^*_{min} \cdot k_{\max}}$"
+            y_label = r"$\frac{f^*}{f^*_\mathrm{min}}\cdot \frac{k_{\mathrm{conv}}}{k_{\max}}$"
         else:
             y_col   = "best_f_final"
             y_label = r"$f^{\,*}$"
         fig, axes = plt.subplots(2, 2, figsize=(9, 7))
         flat = axes.ravel()
         for ax, par in zip(flat, params):
-            show_legend = hue is not None and ax is flat[0]
-            sns.scatterplot(data=df, x=par, y=y_col, hue=hue,
-                            palette="Set1", ax=ax, legend=show_legend)
+            sns.scatterplot(data=df, x=par, y=y_col, color="#CA09A7", ax=ax)
             x = df[par].to_numpy(float)
             y = df[y_col].to_numpy(float)
             if np.ptp(x) > 0:
                 b, a = np.polyfit(x, y, 1)
                 xs = np.linspace(x.min(), x.max(), 50)
-                ax.plot(xs, a + b * xs, color="black", lw=1.0, ls="--")
+                ax.plot(xs, a + b * xs, color="#435421", lw=1.0, ls="--")
             ax.set_xlabel(_PARAM_LABELS.get(par, par))
             ax.set_ylabel(y_label)
             ax.set_ylim([0.0, 1.0])
+            if par in _PARAM_RANGES:
+                lo, hi = _PARAM_RANGES[par]
+                margin = (hi - lo) * 0.05
+                ax.set_xlim(lo - margin, hi + margin)
+                ax.axvline(lo, color="k", lw=2.0, ls="--", zorder=3)
+                ax.axvline(hi, color="k", lw=2.0, ls="--", zorder=3)
+                n_ticks = 5
+                ticks = np.linspace(lo, hi, n_ticks)
+                if par == "NP":
+                    ticks = ticks.astype(int)
+                ax.set_xticks(ticks)
             _apply_comma(ax)
         for ax in flat[len(params):]:
             ax.set_visible(False)
-        fig.suptitle("Hyper-parameter vs final fitness (colour = converged)")
+        fig.suptitle(
+            r"Hiperparâmetro por Convergência adimensional: "
+            r"$\frac{f^*}{f^*_\mathrm{min}}\cdot $"
+            r"$\frac{k_{\mathrm{conv}}}{k_{\max}}$"
+        )
         fig.tight_layout()
         self._save(fig, "lhs_param_scatter")
 
     def _lhs_convergence(
         self, curves: dict[int, pd.DataFrame], df: pd.DataFrame
     ) -> None:
-        best_idx = SAMPLE_CHOSEN
+        # Resolve the same highlighted indices used in _lhs_convergence_expand.
+        best_idx    : int | None = None
+        best_f_idx  : int | None = None
+        best_np_idx : int | None = None
+        valid       : dict       = {}
+
+        required = {"elapsed_s", "n_gens", "sample_idx"}
+        if required.issubset(df.columns):
+            meta = df.set_index("sample_idx")[["elapsed_s", "n_gens"]].copy()
+            meta["k_conv_time"] = meta["n_gens"] * meta["elapsed_s"] / 60
+            valid = {idx: meta.loc[idx] for idx in curves if idx in meta.index}
+            if valid:
+                best_idx = min(valid, key=lambda i: valid[i]["k_conv_time"])
+                df_valid = df[df["sample_idx"].isin(valid)].copy()
+                if "best_f_final" in df.columns and not df_valid.empty:
+                    best_f_idx = int(
+                        df_valid.loc[df_valid["best_f_final"].idxmin(), "sample_idx"]
+                    )
+                if "NP" in df.columns and not df_valid.empty:
+                    best_np_idx = int(
+                        df_valid.loc[df_valid["NP"].idxmin(), "sample_idx"]
+                    )
 
         fig, ax = plt.subplots(figsize=(9, 6))
         for idx, rc in curves.items():
-            is_best = idx == best_idx
-            ax.plot(
-                rc["k"], rc["best_f"],
-                color  = "royalblue" if is_best else "0.7",
-                lw     = 1.8 if is_best else 0.8,
-                zorder = 3 if is_best else 1,
-                label  = f"amostra {idx} (melhor)" if is_best else None,
-            )
+            is_best    = idx == best_idx
+            is_best_f  = idx == best_f_idx
+            is_best_np = idx == best_np_idx
+            highlighted = is_best or is_best_f or is_best_np or idx in (8, 14)
+
+            if is_best:
+                color, lw, zorder = "crimson", 1.8, 3
+            elif is_best_f:
+                color, lw, zorder = "royalblue", 1.8, 3
+            elif is_best_np:
+                color, lw, zorder = "darkorange", 1.8, 3
+            elif idx == 8:
+                color, lw, zorder = "darkgreen", 1.8, 3
+            elif idx == 14:
+                color, lw, zorder = "purple", 1.8, 3
+            else:
+                color, lw, zorder = "0.7", 0.8, 1
+
+            label = None
+            if is_best and idx in valid:
+                row   = valid[idx]
+                label = (
+                    rf"amostra {idx}: menor custo ($k_{{\mathrm{{conv}}}}\!\cdot\!t$ = "
+                    rf"${row['k_conv_time']:.0f}$)"
+                )
+            elif is_best_f:
+                f_row = df[df["sample_idx"] == idx]
+                f_val = float(f_row["best_f_final"].iloc[0]) if not f_row.empty else float("nan")
+                label = rf"amostra {idx}: menor $f^*$  ($f^* = {_cfmt(f_val, 4)}$ kg)"
+            elif is_best_np:
+                np_row = df[df["sample_idx"] == idx]
+                np_val = int(np_row["NP"].iloc[0]) if not np_row.empty else 0
+                label  = rf"amostra {idx}: menor $N_P$  ($N_P = {np_val}$)"
+            elif idx in (8, 14) and idx in valid:
+                row   = valid[idx]
+                label = (
+                    rf"amostra {idx}: baixo custo ($k_{{\mathrm{{conv}}}}\!\cdot\!t$ = "
+                    rf"${row['k_conv_time']:.0f}$)"
+                )
+
+            ax.plot(rc["k"], rc["best_f"],
+                    color=color, lw=lw, zorder=zorder, label=label)
             conv_rows = rc[rc["conv"] == "Y"]
             if not conv_rows.empty:
-                kk = conv_rows.iloc[0]
-                ax.scatter([kk["k"]], [kk["best_f"]], s=18,
-                           color="black", zorder=4)
-        
-        ax.set_xlabel(r"Geração $k$")
+                k_conv = conv_rows.iloc[0]
+                ax.scatter([k_conv["k"]], [k_conv["best_f"]], s=18,
+                           color=color if highlighted else "0.5", zorder=4)
+
+        ax.set_xlabel(r"Geracao $k$")
         ax.set_ylabel(r"$f^{\,*}$ [kg]")
-        ax.set_title(f"Curvas de Convergência DE -- {len(curves)} amostras")
-        if best_idx is not None:
-            ax.legend(fontsize=8)
+        ax.set_title(f"Curvas de Convergencia DE -- {len(curves)} amostras")
+        ax.legend(fontsize=8)
         ax.grid(True, which="both", alpha=0.3)
         fig.tight_layout()
-        self._save(fig, "lhs_convergence")
+        self._save(fig, "lhs_convergence.pdf")
 
     def _lhs_convergence_expand(
         self, curves: dict[int, pd.DataFrame], df: pd.DataFrame
@@ -507,8 +580,8 @@ class RunStats:
             label = None
             if is_best:
                 label = (
-                    rf"amostra {idx}: menor $k_{{\mathrm{{conv}}}}\!\cdot\!t$  "
-                    rf"(${row['k_conv_time']:.0f}$)"
+                    rf"amostra {idx}: menor custo ($k_{{\mathrm{{conv}}}}\!\cdot\!t$ = "
+                    rf"${row['k_conv_time']:.0f}$)"
                 )
             elif is_best_f:
                 f_row = df[df["sample_idx"] == idx]
@@ -632,9 +705,9 @@ class RunStats:
         # Annotate each point with sample index.
         for _, row in d.iterrows():
             ax.annotate(
-                str(int(row["sample_idx"])),
-                xy         = (row["gen_to_half"], row["elapsed_s"]),
-                xytext     = (4, 4),
+                str(int(row["sample_idx"])+1),
+                xy         = (row["n_gens"], row["elapsed_s"]),
+                xytext     = (5, 5),
                 textcoords = "offset points",
                 fontsize   = 7,
                 color      = "0.3",

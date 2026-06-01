@@ -24,9 +24,18 @@ ANOVA metrics reported per group:
     eta_sq       effect size  SS_between / SS_total
     F_stat       one-way ANOVA F-statistic (scipy.stats.f_oneway)
 
+Perturbation radius (--radius, default 1.0):
+    Controls how far perturbations stray from X_ref.  For each group g,
+    the effective sampling window is:
+        lo_pert = clip(X_ref[g] - radius * (hi[g] - lo[g]),  lo[g], hi[g])
+        hi_pert = clip(X_ref[g] + radius * (hi[g] - lo[g]),  lo[g], hi[g])
+    radius=1.0 uses the full DE bounds (original behaviour); radius=0.1
+    keeps every sample within 10% of the range on each side of X_ref.
+
 Usage:
     python -m tools.sensitivity_analysis
     python -m tools.sensitivity_analysis --npert 30
+    python -m tools.sensitivity_analysis --radius 0.2 --npert 40
 
 Outputs written to tools/output/sensitivity/:
     anova_results.csv       per-group ANOVA table (one rectangular row/group)
@@ -85,9 +94,11 @@ from cl3o.main import RunCLEO, _resolve_db_specs, DatabaseSpec, MainHelpers
 # Configuration
 # ================================================================================
 
-_AIRCRAFT = "DA62"
-_N_PERT   = 20       # perturbations per structural group (override with --npert)
-_OUT_DIR  = Path(__file__).resolve().parent / "output" / "sensitivity"
+_AIRCRAFT  = "DA62"
+_RUN       = "opt-final-1"
+_N_PERT    = 20       # perturbations per structural group (override with --npert)
+_RADIUS    = 0.15      # fraction of range used as radius around X_ref (override with --radius)
+_OUT_DIR   = Path(__file__).resolve().parent / "output" / f"sensitivity-{_N_PERT}-{_RADIUS}"
 
 _GROUP_NAMES  = ["Longarinas", "Flanges-largura", "Revestimento", "Almas", "Flanges-layup"]
 _GROUP_COLORS = ["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd"]
@@ -108,7 +119,7 @@ def _build_specs() -> list:
         for f in mat_dir.glob("MAT_*_LaminateData.json")
     )
     specs: list = []
-    specs.append(DatabaseSpec(WingData,    DATA_DIR / "wings",    _AIRCRAFT.lower()))
+    specs.append(DatabaseSpec(WingData,    DATA_DIR / "wings",    f"{_AIRCRAFT.lower()}_simplified"))
     specs.append(DatabaseSpec(AirfoilData, DATA_DIR / "airfoils", "wortmannfx63137"))
     for mat in materials:
         specs.append(DatabaseSpec(LaminateData, mat_dir, mat))
@@ -178,7 +189,7 @@ def _load_last_pkl(run_name: str) -> object:
         return pickle.load(fh)
 
 
-def _x_from_run(run_name: str) -> np.ndarray:
+def _best_from_run(run_name: str) -> np.ndarray:
     '''
     Extract the flat design vector from the last generation of a DE run.
 
@@ -189,7 +200,75 @@ def _x_from_run(run_name: str) -> np.ndarray:
         Flat design vector X reconstructed via BuildEvaluator.encode_optvars.
     '''
     rt = _load_last_pkl(run_name)
-    return BuildEvaluator.encode_optvars(rt.optvars)
+    return (
+        BuildEvaluator.encode_optvars(rt.optvars),
+        rt.fitness.score,
+        rt.fitness.penalty,
+        rt.fitness.total
+    )
+
+
+# ================================================================================
+# Analysis setup helpers
+# ================================================================================
+
+def _build_bounds(runner: RunCLEO) -> tuple[np.ndarray, np.ndarray, int]:
+    '''
+    Extract the DE sampling bounds and wing control-point count from a runner.
+
+    Args:
+        runner: Fully initialised RunCLEO instance.
+
+    Returns:
+        Tuple (lo, hi, n) where lo and hi are the (D,) bound vectors and n is
+        wing.n_cpts.
+    '''
+    lo = runner.static.opt_setup.data.lo
+    hi = runner.static.opt_setup.data.hi
+    n  = int(runner.static.wing_db.n_cpts)
+    return lo, hi, n
+
+
+def _resolve_x_ref(
+    args   : object,
+    lo     : np.ndarray,
+    hi     : np.ndarray,
+    n      : int,
+) -> np.ndarray:
+    '''
+    Load or construct the reference design vector based on the parsed --run arg.
+
+    When --run is supplied, X_ref is the best design from the last generation
+    pickle of that archived DE run.  When omitted, or when the archived run's
+    design-vector dimension does not match the current runner (e.g. n_cpts
+    changed since the run was saved), X_ref falls back to the midpoint of the
+    DE bounds (discrete variables rounded to nearest integer).
+
+    Args:
+        args: Parsed argparse.Namespace with optional attribute ``run``.
+        lo:   Global lower-bound vector (D,).
+        hi:   Global upper-bound vector (D,).
+        n:    Number of spanwise control points.
+
+    Returns:
+        Reference design vector X_ref of shape (D,).
+    '''
+    if args.run is not None:
+        print(f"\nLoading X_ref from archived run '{args.run}' ...")
+        X_ref, sc_ref, pen_ref, f_ref = _best_from_run(args.run)
+        D = int(lo.size)
+        if X_ref.size != D:
+            print(
+                f"  [warn] archived run D={X_ref.size} != current runner D={D} "
+                f"(n_cpts changed since run was saved).\n"
+                f"  [warn] falling back to DE-bounds midpoint as X_ref."
+            )
+            return _make_reference(lo, hi, n)
+        print(f"  X_ref loaded  (D={X_ref.size})")
+    else:
+        print("\nNo --run supplied -- using midpoint of DE bounds as X_ref.")
+        X_ref = _make_reference(lo, hi, n)
+    return X_ref, sc_ref, pen_ref, f_ref
 
 
 # ================================================================================
@@ -305,52 +384,6 @@ def _make_reference(lo: np.ndarray, hi: np.ndarray, n: int) -> np.ndarray:
 
 
 # ================================================================================
-# Reference breakdown plot
-# ================================================================================
-
-def _plot_reference(runner: RunCLEO, X_ref: np.ndarray, out_dir: Path) -> None:
-    '''
-    Evaluate X_ref and save a bar chart of mass, penalty, and total fitness.
-
-    Args:
-        runner:  RunCLEO instance.
-        X_ref:   Reference design vector.
-        out_dir: Output directory.
-    '''
-    f_ref = _eval_safe(runner, X_ref)
-    if f_ref is None:
-        print("  [warn] reference design evaluation failed -- skipping ref plot.")
-        return
-
-    rt   = runner.runtime
-    mass = float(rt.score.total)
-    pen  = float(rt.penalty.total)
-    feas = rt.penalty.is_feasible
-
-    fig, ax = plt.subplots(figsize=(6, 4))
-    bars = ax.bar(
-        ["Mass  m(X)", "Penalty  P(X)", "Total  z(X)"],
-        [mass, pen, f_ref],
-        color=["#2ca02c", "#d62728", "#1f77b4"],
-    )
-    for bar, val in zip(bars, [mass, pen, f_ref]):
-        ax.text(
-            bar.get_x() + bar.get_width() / 2,
-            bar.get_height() + 0.01 * max(f_ref, 1.0),
-            f"{val:.3f}", ha="center", va="bottom", fontsize=9,
-        )
-
-    ax.set_ylabel("Value  [kg or --]")
-    ax.set_title(f"Reference design  X_ref\nfeasible={feas}  |  z(X_ref)={f_ref:.4f}")
-    ax.grid(axis="y", alpha=0.3)
-    fig.tight_layout()
-    p = out_dir / "convergence_ref.png"
-    fig.savefig(p, dpi=150, bbox_inches="tight")
-    plt.close(fig)
-    print(f"  saved -> {p}")
-
-
-# ================================================================================
 # ANOVA plots
 # ================================================================================
 
@@ -456,62 +489,63 @@ def main() -> None:
         help=f"Perturbations per group (default {_N_PERT}).",
     )
     parser.add_argument(
-        "--run", type=str, default=None,
+        "--run", type=str, default=f"{_AIRCRAFT.lower()}_{_RUN.lower()}",
         help=(
             "Archived DE run folder name under outputs/ (e.g. 'da62_Opt-1'). "
             "X_ref is taken from the last generation pickle. "
             "If omitted, X_ref defaults to the midpoint of the DE bounds."
         ),
     )
+    parser.add_argument(
+        "--radius", type=float, default=_RADIUS,
+        help=(
+            f"Perturbation radius as a fraction of each group's range "
+            f"(default {_RADIUS}).  "
+            "Each sample stays within X_ref[g] +/- radius*(hi[g]-lo[g]), "
+            "clamped to the DE bounds.  1.0 = full range; 0.1 = 10%% on each side."
+        ),
+    )
     args   = parser.parse_args()
     n_pert = int(args.npert)
+    radius = float(np.clip(args.radius, 1e-6, 1.0))
 
     _OUT_DIR.mkdir(parents=True, exist_ok=True)
 
     print("Loading CL3O databases ...")
-    runner = _build_runner()
-
-    lo = runner.static.opt_setup.data.lo
-    hi = runner.static.opt_setup.data.hi
-    n  = int(runner.static.wing_db.n_cpts)
-    D  = int(lo.size)
+    runner    = _build_runner()
+    lo, hi, n = _build_bounds(runner)
+    D         = int(lo.size)
     print(f"  wing n_cpts = {n}  |  D = {D}")
 
     groups = _get_groups(n)
     rng    = np.random.default_rng(DE_HYPERPAR["seed"])
 
-    if args.run is not None:
-        print(f"\nLoading X_ref from archived run '{args.run}' ...")
-        X_ref = _x_from_run(args.run)
-        print(f"  X_ref loaded  (D={X_ref.size})")
-    else:
-        print("\nNo --run supplied -- using midpoint of DE bounds as X_ref.")
-        X_ref = _make_reference(lo, hi, n)
+    print("\nDecoding design X_ref ...")
+    X_ref, sc_ref, pen_ref, f_ref  = _resolve_x_ref(args, lo, hi, n)
 
-    print("\nEvaluating reference design X_ref ...")
-    f_ref = _eval_safe(runner, X_ref)
     if f_ref is not None:
-        rt = runner.runtime
         print(
             f"  z(X_ref) = {f_ref:.4f}  |  "
-            f"mass={rt.score.total:.3f} kg  |  "
-            f"penalty={rt.penalty.total:.3f}  |  "
-            f"feasible={rt.penalty.is_feasible}"
+            f"mass={sc_ref:.3f} kg  |  "
+            f"penalty={pen_ref:.3f}  |  "
         )
-    _plot_reference(runner, X_ref, _OUT_DIR)
 
     group_fitness: dict[str, list[float]] = {}
     total_evals   = 0
 
     for gname, (slc, discrete) in groups.items():
-        lo_g     = lo[slc]
-        hi_g     = hi[slc]
-        perturb  = _lhc_group(n_pert, lo_g, hi_g, discrete, rng)
+        lo_g    = lo[slc]
+        hi_g    = hi[slc]
+        x_g     = X_ref[slc]
+        half    = radius * (hi_g - lo_g)
+        lo_pert = np.clip(x_g - half, lo_g, hi_g)
+        hi_pert = np.clip(x_g + half, lo_g, hi_g)
+        perturb = _lhc_group(n_pert, lo_pert, hi_pert, discrete, rng)
         n_vars   = int(perturb.shape[1])
         var_type = "discrete" if discrete else "continuous"
 
         print(
-            f"\n[{gname}]  {n_vars} vars  ({var_type})"
+            f"\n[{gname}]  {n_vars} vars  ({var_type})  radius={radius:.2f}"
             f"  --  evaluating {n_pert} perturbations ..."
         )
 

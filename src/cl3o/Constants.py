@@ -30,16 +30,18 @@ WEIGHTING_FACTOR = 1.0     # e.g. wm = 1000 -> transforms mass in kg to g
 # Analyzed lifting-surface side. Selects which half-span the load mapper
 # slices and which sign the spanwise stations carry through the pipeline.
 # "right" -> Y > 0 (root 0 -> tip +b/2);  "left" -> Y < 0 (root 0 -> tip -b/2).
-WING_SIDE = "left"                                   # "right" | "left"
+WING_SIDE = "right"                                   # "right" | "left"
 WING_SIDE_SIGN = +1.0 if WING_SIDE == "right" else -1.0
 
 # Differential Evolution default hyper-parameters
+# Latin-Hypercube sample #14 from tune-de-3:
+# NP = 23, CR = 0.9089, F = 0.7081, lambda = 0.3930 (stall - 50)
 DE_HYPERPAR: dict = {
-    'NP'             : 16,
-    'CR'             : 0.95,
-    'F'              : 0.3,
-    'lambda'         : 0.2,
-    'k_max'          : 200,
+    'NP'             : 23,
+    'CR'             : 0.9089,
+    'F'              : 0.7081,
+    'lambda'         : 0.3930,
+    'k_max'          : 400,
     'seed'           : 42,
     'std_tol'        : 0.01,    # std_tol * mean_f < std_f ||| 0.01 -> 1 gram (mass) of std
     'stall_patience' : 50,      # gens of no best-f improvement -> stop

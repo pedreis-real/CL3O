@@ -117,7 +117,9 @@ from cl3o.utils.lru_cache import LRUCache
 from cl3o.utils.oppoints import OppData
 
 # Optimization
-from cl3o.optimization.de_opt    import SetupOpt, RunOpt, OptData, HistoryData, OptVars
+from cl3o.optimization.de_opt import (
+    SetupOpt, RunOpt, OptData, HistoryData, OptVars
+)
 from cl3o.optimization.fobjective import BuildEvaluator, RuntimeData
 
 # stdlib (used by run_single)
@@ -139,6 +141,15 @@ from cl3o.fea.pre.fem_setup import FemSetup, FemPreprocessData
 # ================================================================================
 # INTERNAL HELPERS API
 # ================================================================================
+
+# -------- Runner options --------
+_DFLT_RUNNER_OPTIONS: dict[str, bool] = {
+    "use_local_in_sr" : True,
+    "use_offset"      : True,
+    "pipeline_logging": False,
+    "enable_logging"  : True,
+    "live_plot"       : True,
+}
 
 class MainHelpers:
     '''
@@ -218,16 +229,6 @@ class MainHelpers:
 # ================================================================================
 # DATA PERSISTENCE API
 # ================================================================================
-
-# -------- Runner options --------
-# Keys: use_local_in_sr, use_offset, pipeline_logging, enable_logging, live_plot
-_DFLT_RUNNER_OPTIONS: dict[str, bool] = {
-    "use_local_in_sr" : True,
-    "use_offset"      : True,
-    "pipeline_logging": False,
-    "enable_logging"  : True,
-    "live_plot"       : True,
-}
 
 # -------- Specifications --------
 @dataclass
@@ -1178,10 +1179,7 @@ def _resolve_db_specs(
 
 if __name__ == "__main__":
     aircraft_name = "DA62"
-    opt_name = "Test-Single-1"
-    # opt_name = "Test-GlobalFrame-RightWing-3"
-    # opt_name = "Opt-2"
-    # opt_name = "LHS-1"
+    opt_name = "Opt-Final-2"
 
     # ---------------- Set database specifications ----------------
     # Laminates are discovered by glob over MAT_*_LaminateData.json; the
@@ -1240,38 +1238,33 @@ if __name__ == "__main__":
         runner_options = {
             "use_local_in_sr" : True,
             "use_offset"      : True,
-            "live_plot"       : False,
+            "live_plot"       : True,
             "pipeline_logging": False,
             "enable_logging"  : True,
         },
-        de_hyperpar    = {**DE_HYPERPAR,
-            'k_max': 1,
-            'NP': 4,
-            'CR': 0.7580467347768985,
-            'F': 0.7613068038342563,
-            'lambda': 0.9212614312424539,
-        },
+        de_hyperpar    = DE_HYPERPAR,
     )
     runner.run()
 
-#       NP    CR                      F                       lambda
-# 1     72    0.7580467347768985      0.7613068038342563      0.9212614312424539
-# 2     50    0.8699081067571823      0.3024584114361717      0.5811593572343022
-# 3     32    0.7180372085048521      0.3963981465460308      0.7790166192993425
-# 4     55    0.547818889431943       1.496936620496266       0.6119684721496477
-# 5     41    0.7972568588001199      0.46895121324729194     0.8963577276533934
-# 6     75    0.82646420087013        0.7198325961473526      0.4678897598354535
-# 7     65    0.820816103691335       1.1001670236327397      0.22113436105988293
-# 8     37    0.9998774126308831      0.6402374648816178      0.5168955612753566
-# 9     28    0.9276373819892558      0.8960426109573749      0.0008263817764264548
-# 10    68    0.6595919388565471      0.5237793267857966      0.9730022569654548
-# 11    46    0.6281070819124891      0.9356580018119818      0.4155120937779478
-# 12    52    0.6135365305062273      1.067225898449321       0.08647482804919993
-# 13    42    0.5733768105946943      1.271970926638093       0.36944607119895523
-# 14    32    0.9738647623422685      0.8115212593485435      0.847105655525325
-# 15    18    0.6912614819066955      1.4099937488212588      0.28235947557871255
-# 16    60    0.8799628261127315      0.557982713432243       0.6575139733447419
-# 17    62    0.916799871948909       1.153838532539625       0.1001369250085074
-# 18    79    0.5758396393826366      1.3577464890923825      0.15878278103012797
-# 19    24    0.5067446678440968      0.9736294556120029      0.7026010650532205
-# 20    22    0.747237195858725       1.2054451827371473      0.34904176693881156
+# ================ DE TUNE #3 ================
+#       NP      CR          F           lambda
+# 0     65      0.6321      0.8837      0.3052
+# 1     73      0.7418      1.4992      0.0149
+# 2     17      0.7829      0.3308      0.1006
+# 3     30      0.8031      0.8041      0.9044
+# 4     52      0.8569      0.3785      0.0678
+# 5     21      0.6094      0.4334      0.1859
+# 6     61      0.8991      1.3681      0.6938
+# 7     74      0.9423      1.3806      0.5477
+# 8     47      0.9756      1.2446      0.4187
+# 9     39      0.5728      0.6183      0.5890
+# 10    58      0.7048      0.9691      0.8992
+# 11    36      0.5963      0.5537      0.2818
+# 12    68      0.6887      1.1115      0.6000
+# 13    42      0.7579      1.0479      0.2168
+# 14    23      0.9089      0.7081      0.3930  <-- amostra escolhida
+# 15    28      0.5032      0.5381      0.7398
+# 16    34      0.9686      0.7397      0.8004
+# 17    55      0.5358      1.1521      0.7587
+# 18    79      0.8274      0.9378      0.4526
+# 19    49      0.6639      1.2626      0.9824
