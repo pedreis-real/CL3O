@@ -29,7 +29,9 @@ Usage:
     python -m tools.sensitivity_analysis --npert 30
 
 Outputs written to tools/output/sensitivity/:
-    anova_results.csv       ANOVA table with per-group statistics
+    anova_results.csv       per-group ANOVA table (one rectangular row/group)
+    anova_summary.csv       single one-way ANOVA summary row (grand_mean,
+                            SS_total, df_between, df_within, F_stat, p_value)
     sensitivity_bar.png     eta^2 and coefficient-of-variation bar chart
     boxplots.png            fitness distributions per group
     convergence_ref.png     fitness components at X_ref for reference
@@ -559,7 +561,7 @@ def main() -> None:
                 "group": gname, "n_valid": 0,
                 "mean_f": "nan", "std_f": "nan",
                 "min_f":  "nan", "max_f": "nan",
-                "SS_within": "nan", "eta_sq": "nan",
+                "SS_within": "nan", "SS_between": "nan", "eta_sq": "nan",
             })
             continue
         arr   = np.array(vals)
@@ -568,14 +570,15 @@ def main() -> None:
         SS_b  = float(len(arr) * (gm - grand_mean) ** 2)
         eta2  = SS_b / SS_total if SS_total > 0 else 0.0
         anova_rows.append({
-            "group":     gname,
-            "n_valid":   int(len(arr)),
-            "mean_f":    round(gm,               4),
-            "std_f":     round(float(arr.std()),  4),
-            "min_f":     round(float(arr.min()),  4),
-            "max_f":     round(float(arr.max()),  4),
-            "SS_within": round(SS_w,              4),
-            "eta_sq":    round(eta2,              6),
+            "group":      gname,
+            "n_valid":    int(len(arr)),
+            "mean_f":     round(gm,               4),
+            "std_f":      round(float(arr.std()),  4),
+            "min_f":      round(float(arr.min()),  4),
+            "max_f":      round(float(arr.max()),  4),
+            "SS_within":  round(SS_w,              4),
+            "SS_between": round(SS_b,              4),
+            "eta_sq":     round(eta2,              6),
         })
 
     print(f"\n{'Group':<15} {'n':>4}  {'mean':>8}  {'std':>8}  "
@@ -590,23 +593,41 @@ def main() -> None:
     print(f"\nOne-way ANOVA: F = {f_stat:.4f},  p = {p_val:.4g}"
           f"  (total evals = {total_evals})")
 
+    # anova_results.csv: one rectangular row per structural group (variant A).
+    # The grand/F/p statistics live in the sibling anova_summary.csv so each
+    # file stays rectangular and machine-readable (no packed strings, no footer
+    # row masquerading as a group).
     fieldnames = ["group", "n_valid", "mean_f", "std_f", "min_f",
-                  "max_f", "SS_within", "eta_sq"]
-    footer = [{
-        "group": "ANOVA", "n_valid": total_evals,
-        "mean_f": round(grand_mean, 4), "std_f": "",
-        "min_f": "", "max_f": "",
-        "SS_within": round(SS_total, 4),
-        "eta_sq": f"F={f_stat:.4f} p={p_val:.4g}",
-    }]
+                  "max_f", "SS_within", "SS_between", "eta_sq"]
 
     csv_path = _OUT_DIR / "anova_results.csv"
     with open(csv_path, "w", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
         writer.writerows(anova_rows)
-        writer.writerows(footer)
     print(f"\nANOVA table saved -> {csv_path}")
+
+    # anova_summary.csv: the single one-way ANOVA summary row. df_between and
+    # df_within are the degrees of freedom of the f_oneway test, computed over
+    # the groups with >= 2 observations (k groups, N = sum of their sizes).
+    n_anova    = int(all_fitness.size)
+    k_anova    = int(len(valid_groups))
+    df_between = max(k_anova - 1, 0)
+    df_within  = max(n_anova - k_anova, 0)
+    summary_row = {
+        "grand_mean": round(grand_mean, 4),
+        "SS_total":   round(SS_total,   4),
+        "df_between": df_between,
+        "df_within":  df_within,
+        "F_stat":     round(float(f_stat), 4),
+        "p_value":    f"{float(p_val):.6g}",
+    }
+    summary_path = _OUT_DIR / "anova_summary.csv"
+    with open(summary_path, "w", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=list(summary_row.keys()))
+        writer.writeheader()
+        writer.writerow(summary_row)
+    print(f"ANOVA summary saved -> {summary_path}")
 
     _plot_sensitivity_bar(
         [r for r in anova_rows if r["n_valid"] > 0 and r["eta_sq"] != "nan"],
