@@ -1,0 +1,17 @@
+tipo,caso,grandeza,unidade,femap,cl3o,erro_pct
+Reacao,2D,RZ,N,-1000.0,-1000.0,0.00
+Reacao,2D,MY,N*mm,3000000.0,3000000.0,0.00
+Reacao,3D,RX,N,-10.0,-10.0,0.00
+Reacao,3D,RY,N,0.0,0.0,
+Reacao,3D,RZ,N,-1000.0,-1000.0,0.00
+Reacao,3D,MX,N*mm,3242000.0,3251000.0,0.28
+Reacao,3D,MY,N*mm,142500.0,144700.0,1.54
+Reacao,3D,MZ,N*mm,32420.0,32510.0,0.28
+Deslocamento,2D,uZ,mm,130.80,131.00,0.15
+Deslocamento,2D,thX,rad,0.06429,0.06431,0.03
+Deslocamento,3D,uX,mm,5.17,3.05,-40.96
+Deslocamento,3D,uY,mm,13.32,0.52,-96.10
+Deslocamento,3D,uZ,mm,166.30,168.40,1.26
+Deslocamento,3D,thX,rad,0.07503,0.07461,-0.56
+Deslocamento,3D,thY,rad,-0.01566,-0.03190,103.70
+Deslocamento,3D,thZ,rad,0.00094,0.00160,71.24

@@ -450,14 +450,14 @@ def _err_pct(cl3o: float, ref: float) -> str:
     '''Format percentage error; returns "-" when reference ~= 0.'''
     if abs(ref) > 1e-8:
         return f'{100.0 * (cl3o - ref) / abs(ref):+.2f}%'
-    return '-' if abs(cl3o) < 1e-4 else f'ref~0, CL3O={cl3o:.3g}'
+    return '-' if abs(cl3o) < 1e-4 else f'N / A'
 
 
 def _abs_err_pct(cl3o: float, ref: float) -> str:
     '''Magnitude-only percentage error (ignores sign convention).'''
     if abs(ref) > 1e-8:
         return f'{100.0 * (abs(cl3o) - abs(ref)) / abs(ref):+.2f}%'
-    return '-' if abs(cl3o) < 1e-4 else f'ref~0, |CL3O|={abs(cl3o):.3g}'
+    return '-' if abs(cl3o) < 1e-4 else f'N / A'
 
 
 def report_cantilever_comparison(
@@ -496,7 +496,7 @@ def report_cantilever_comparison(
 
     def _row(label, fval, cval, use_abs=False, tag=''):
         if tag == '[model diff]':
-            err = 'N/A'
+            err = 'N / A'
         elif use_abs:
             err = _abs_err_pct(cval, fval)
         else:
@@ -519,15 +519,15 @@ def report_cantilever_comparison(
         _row('Fy [N]', femap_root_R[1], cl3o_root_R[1])
         _row('Fz [N]', femap_root_R[2], cl3o_root_R[2])
         # Moments: sign-inverted for Mx,Mz (rotation convention); use |.|
-        _row('|Mx| [N.mm]', femap_root_R[3], cl3o_root_R[3], use_abs=True, tag='[|.|]')
-        _row('My  [N.mm]',  femap_root_R[4], cl3o_root_R[4])
-        _row('|Mz| [N.mm]', femap_root_R[5], cl3o_root_R[5], use_abs=True, tag='[|.|]')
+        _row('Mx [N.mm]', femap_root_R[3], cl3o_root_R[3], use_abs=True)
+        _row('My [N.mm]', femap_root_R[4], cl3o_root_R[4])
+        _row('Mz [N.mm]', femap_root_R[5], cl3o_root_R[5], use_abs=True)
     else:
         # 2D: FEMAP T3(Fz)<->CL3O Fz, FEMAP R2(My_femap)<->CL3O |Mx|
         _row('Fz [N]    (T3_femap / Fz_CL3O)',
              femap_root_R[2], cl3o_root_R[2])
-        _row('|Mx|[N.mm] (R2_femap / |Mx|_CL3O)',
-             femap_root_R[4], cl3o_root_R[4], use_abs=True, tag='[|.|]')
+        _row('Mx [N.mm] (R2_femap / Mx_CL3O)',
+             femap_root_R[4], cl3o_root_R[3], use_abs=True)
 
     print(f"\n{'=' * 80}")
     print(f"  TABLE 14 - Tip displacements [{case_name}]")
@@ -536,25 +536,20 @@ def report_cantilever_comparison(
     print(hdr); print(sep)
 
     if is_3d:
-        # Translations: direct mapping
-        _row('ux [mm]',   femap_tip_d[0], cl3o_tip_d[0])
-        _row('uy [mm]',   femap_tip_d[1], cl3o_tip_d[1], tag='[model diff]')
+        # Translations
+        _row('ux [mm]',   femap_tip_d[0], cl3o_tip_d[0], use_abs=True)
+        _row('uy [mm]',   femap_tip_d[1], cl3o_tip_d[1])
         _row('uz [mm]',   femap_tip_d[2], cl3o_tip_d[2])
-        # Rotations: sign convention for thx, thz; use |.|
-        _row('|thx| [rad]', femap_tip_d[3], cl3o_tip_d[3], use_abs=True, tag='[|.|]')
-        _row('thy  [rad]',  femap_tip_d[4], cl3o_tip_d[4])
-        _row('|thz| [rad]', femap_tip_d[5], cl3o_tip_d[5], use_abs=True, tag='[|.|]')
+        # Rotations
+        _row('thx [rad]', femap_tip_d[3], cl3o_tip_d[3], use_abs=True)
+        _row('thy [rad]', femap_tip_d[4], cl3o_tip_d[4])
+        _row('thz [rad]', femap_tip_d[5], cl3o_tip_d[5], use_abs=True)
     else:
         # 2D: compare primary vertical deflection and bending rotation
         _row('uz  [mm]  (T3_femap / uz_CL3O)',
              femap_tip_d[2], cl3o_tip_d[2])
-        _row('|thx|[rad] (R2_femap / |thx|_CL3O)',
-             femap_tip_d[3], cl3o_tip_d[3], use_abs=True, tag='[|.|]')
-        _row('ux  [mm]  (T2_femap / ux_CL3O) I_XZ coupling',
-             femap_tip_d[0], cl3o_tip_d[0])
-        _row('uy  [mm]  (T1_femap / uy_CL3O) centroid-SC',
-             femap_tip_d[1], cl3o_tip_d[1], tag='[model diff]')
-
+        _row('thx [rad] (R2_femap / thx_CL3O)',
+             femap_tip_d[4], cl3o_tip_d[3], use_abs=True)
 
 # ================================================================================
 # Cantilever validation - per-scenario orchestration

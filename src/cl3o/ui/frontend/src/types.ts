@@ -213,6 +213,8 @@ export interface LaminateEntry {
 
 export interface Scene {
   surface: Mesh3D;
+  surface_ls1: Mesh3D;
+  surface_ls2: Mesh3D;
   front_spar: Mesh3D;
   rear_spar: Mesh3D;
   centroid_line: Vec3[];

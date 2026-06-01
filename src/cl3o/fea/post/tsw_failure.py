@@ -162,7 +162,7 @@ class TsaiWuFailure:
 
     def _get_laminate(self, lam_idx: int) -> LaminateData:
         '''Retrieve LaminateData from the static database by integer key.'''
-        return self.lam_db[f"MAT{int(lam_idx)}"]
+        return self.lam_db[f"MAT{int(lam_idx) + 1}"]
 
     def _laminate_arrays(
         self,

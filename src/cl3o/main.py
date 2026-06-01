@@ -109,7 +109,7 @@ from cl3o.paths import (
 # ================ Module imports ================
 
 # Constants
-from cl3o.Constants import DE_HYPERPAR, WING_SIDE, GEOM_CACHE_MAXSIZE
+from cl3o.Constants import DE_HYPERPAR, WING_SIDE, GEOM_CACHE_MAXSIZE, LAYUP_ORDER
 
 # Utilities
 from cl3o.utils import io_utils as io
@@ -1179,7 +1179,7 @@ def _resolve_db_specs(
 
 if __name__ == "__main__":
     aircraft_name = "DA62"
-    opt_name = "Opt-Final-2"
+    opt_name = "Opt-Final-Ajusted-2"
 
     # ---------------- Set database specifications ----------------
     # Laminates are discovered by glob over MAT_*_LaminateData.json; the
@@ -1188,11 +1188,13 @@ if __name__ == "__main__":
     # named MAT{int} (no underscore).
     skip_mat : list[str] = []
 
-    materials_to_load = sorted(
-        f.stem.removesuffix("_LaminateData")
-        for f in _DFLT_MAT_DIR.glob("MAT_*_LaminateData.json")
-        if f.stem.removesuffix("_LaminateData") not in skip_mat
-    )
+    # Load laminates in the canonical LAYUP_ORDER sequence (0-based indices).
+    # Index k in the DE vector maps to LAYUP_ORDER[k] (stored as MAT{k+1}).
+    materials_to_load = [
+        name for name in LAYUP_ORDER
+        if (_DFLT_MAT_DIR / f"{name}_LaminateData.json").exists()
+        and name not in skip_mat
+    ]
 
     airfoils_to_load = [
         "WortmannFX63137",
@@ -1238,7 +1240,7 @@ if __name__ == "__main__":
         runner_options = {
             "use_local_in_sr" : True,
             "use_offset"      : True,
-            "live_plot"       : True,
+            "live_plot"       : False,
             "pipeline_logging": False,
             "enable_logging"  : True,
         },

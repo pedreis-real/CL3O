@@ -245,7 +245,7 @@ class SectionBuilder:
         Returns:
             Tuple (thick, E1, E2, G12, E1_bend, E2_bend) from LaminateData.
         '''
-        lam = self.st.laminate_db[f'MAT{int(lam_idx)}']
+        lam = self.st.laminate_db[f'MAT{int(lam_idx) + 1}']
         return (
             float(lam.thick),
             float(lam.E1),

@@ -42,21 +42,22 @@ _N_CHORD    = 81              # airfoil-loop points per rib (kept light for WebG
 # PRIVATE API - geometry primitives
 # ========================================================================
 
-def _skin_rib(gd) -> np.ndarray:
+def _skin_rib(gd) -> tuple[np.ndarray, int]:
     '''Outer skin contour for one section from T1 seg1..seg5, in global XZ.
 
     T1 outer segments in connectivity order (seg1 = LE cell, seg2..5 = mid/TE):
-        seg1: B5 → (LE) → B3   lower-front skin wrapping around the nose
-        seg2: B3 → B1           upper mid skin
-        seg3: B1 → TE           upper TE skin
-        seg4: TE → B7           lower TE skin
-        seg5: B7 → B5           lower mid skin
+        seg1: B5 → (LE) → B3   lower-front skin wrapping around the nose  (ls1)
+        seg2: B3 → B1           upper mid skin                              (ls2)
+        seg3: B1 → TE           upper TE skin                               (ls2)
+        seg4: TE → B7           lower TE skin                               (ls2)
+        seg5: B7 → B5           lower mid skin                              (ls2)
 
     All pts are already in global XZ (LE_xz offset applied by section builder).
     Sub-sampled to at most _N_CHORD points for WebGL budget.
 
     Returns:
-        (N, 2) float array, columns [x, z].
+        Tuple (pts, n_ls1) where pts is an (N, 2) float array [x, z] and
+        n_ls1 is the number of points in pts belonging to seg1 (ls1 region).
     '''
     segs = {s["label"]: np.asarray(s["pts"], float) for s in gd.T1}
     parts = []
@@ -66,12 +67,17 @@ def _skin_rib(gd) -> np.ndarray:
             continue
         parts.append(p if k == 0 else p[1:])   # skip shared endpoint
     if not parts:
-        return np.zeros((0, 2))
+        return np.zeros((0, 2)), 0
+    n_ls1_raw = len(parts[0])
     loop = np.vstack(parts)
-    if loop.shape[0] > _N_CHORD:
-        idx = np.unique(np.linspace(0, loop.shape[0] - 1, _N_CHORD).round().astype(int))
+    n_raw = loop.shape[0]
+    if n_raw > _N_CHORD:
+        idx = np.unique(np.linspace(0, n_raw - 1, _N_CHORD).round().astype(int))
         loop = loop[idx]
-    return loop
+        n_ls1_in_loop = int(np.sum(idx < n_ls1_raw))
+    else:
+        n_ls1_in_loop = n_ls1_raw
+    return loop, n_ls1_in_loop
 
 
 def _span_stations(rt) -> list[int]:
@@ -89,9 +95,16 @@ def _span_stations(rt) -> list[int]:
 
 def _grid_faces(n_c: int, n_s: int) -> tuple[list, list, list]:
     '''Triangulate a structured (n_c chord x n_s span) grid; vertex = s*n_c+c.'''
+    return _grid_faces_range(n_c, n_s, 0, n_c)
+
+
+def _grid_faces_range(
+    n_c: int, n_s: int, c_start: int, c_end: int
+) -> tuple[list, list, list]:
+    '''Triangulate chord strips [c_start, c_end) of a structured grid.'''
     i, j, k = [], [], []
     for s in range(n_s - 1):
-        for c in range(n_c - 1):
+        for c in range(c_start, c_end - 1):
             v00 = s * n_c + c
             v10 = s * n_c + c + 1
             v01 = (s + 1) * n_c + c
@@ -167,7 +180,8 @@ def build_scene(
     y_left = np.array([float(sec[i].C[1]) for i in left])
 
     # Per-station LE / chord / twist via the production single-wing lerp.
-    lerp = WingHelper.lerp_from_data(wing, y_left)
+    wing_side = "left" if len(y_left) > 0 and float(y_left[np.argmax(np.abs(y_left))]) < 0 else "right"
+    lerp = WingHelper.lerp_from_data(wing, y_left, wing_side)
     ly = np.asarray(lerp.Y_sta, dtype=float)
     LE = np.asarray(lerp.LE, dtype=float)
     chord = np.asarray(lerp.chord, dtype=float)
@@ -176,9 +190,20 @@ def build_scene(
     lrow = [int(np.argmin(np.abs(ly - y))) for y in y_left]
 
     # Build per-station outer skin ribs from T1 pts (seg1..seg5 in global XZ).
-    # These use the actual blended airfoil so they align with section panel data.
-    raw_ribs = [_skin_rib(sec[node_i]) for node_i in left]
+    # _skin_rib returns (loop, n_ls1_in_loop): seg1 = ls1, seg2-5 = ls2.
+    raw_ribs_full = [_skin_rib(sec[node_i]) for node_i in left]
+    raw_ribs = [r for r, _ in raw_ribs_full]
+    n_ls1s   = [n for _, n in raw_ribs_full]
     n_c = min(r.shape[0] for r in raw_ribs if r.shape[0] > 0) or _N_CHORD
+
+    # Chord split index (last ls1 point in the n_c resampled array), root station.
+    raw0   = raw_ribs[0]
+    n_ls10 = n_ls1s[0]
+    if raw0.shape[0] != n_c and raw0.shape[0] > 1:
+        c_split = int(round((n_ls10 - 1) / (raw0.shape[0] - 1) * (n_c - 1)))
+    else:
+        c_split = max(0, n_ls10 - 1)
+    c_split = max(1, min(c_split, n_c - 2))
 
     dmat = getattr(getattr(rt, "fea_rts", None), "dmatrix", None)
     if deform and dmat is not None:
@@ -213,10 +238,29 @@ def build_scene(
         verts[:, s] = rib
 
     flat = verts.reshape(-1, 3, order="F")          # vertex idx = s*n_c + c
+    disp_payload = {key: disp[key] for key in comp_keys} if dmat is not None else None
+
     i, j, k = _grid_faces(n_c, n_s)
     surface = {"vertices": flat, "i": i, "j": j, "k": k, "n_chord": n_c, "n_span": n_s}
-    if dmat is not None:
-        surface["station_disp"] = {key: disp[key] for key in comp_keys}
+    if disp_payload is not None:
+        surface["station_disp"] = disp_payload
+
+    # ls1 sub-mesh: seg1 (LE → front spar), own vertex slice [0, c_split].
+    # Slicing verts avoids Plotly rendering unused vertices with the wrong color.
+    n_c1 = c_split + 1
+    flat_ls1 = verts[:n_c1, :, :].reshape(-1, 3, order="F")
+    i1, j1, k1 = _grid_faces(n_c1, n_s)
+    surface_ls1 = {"vertices": flat_ls1, "i": i1, "j": j1, "k": k1, "n_chord": n_c1, "n_span": n_s}
+    if disp_payload is not None:
+        surface_ls1["station_disp"] = disp_payload
+
+    # ls2 sub-mesh: seg2-5 (front spar → TE), own vertex slice [c_split, n_c).
+    n_c2 = n_c - c_split
+    flat_ls2 = verts[c_split:, :, :].reshape(-1, 3, order="F")
+    i2, j2, k2 = _grid_faces(n_c2, n_s)
+    surface_ls2 = {"vertices": flat_ls2, "i": i2, "j": j2, "k": k2, "n_chord": n_c2, "n_span": n_s}
+    if disp_payload is not None:
+        surface_ls2["station_disp"] = disp_payload
 
     # Spar strips and structural lines. Each section point is expressed as a
     # chord fraction of its own profile, then re-placed on the per-station
@@ -233,6 +277,8 @@ def build_scene(
 
     out = {
         "surface": surface,
+        "surface_ls1": surface_ls1,
+        "surface_ls2": surface_ls2,
         "front_spar": front,
         "rear_spar": rear,
         "centroid_line": cline,

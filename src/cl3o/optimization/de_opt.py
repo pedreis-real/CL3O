@@ -45,7 +45,7 @@ import numpy as np
 
 # Constants
 from cl3o.Constants import (
-    DE_HYPERPAR, OPT_LIMS, TOL, N_SEG_T1, STALL_REL_TOL,
+    DE_HYPERPAR, OPT_LIMS, TOL, STALL_REL_TOL,
 )
 
 # Utilities
@@ -502,32 +502,53 @@ class SetupOpt:
             xw2         : n_cpts  in [OPT_LIMS['xw2']]
             bf*_root    : 4 scalars in [OPT_LIMS['bfk']] mm
             tpr         : n_cpts-1 in [OPT_LIMS['fl_tpr']]
-            ls1,ls2,
-            lw1,lw2,
-            lf1..lf4    : 8 * n_cpts discrete in [0, n_mats-1]
+            ls1, ls2    : 2 * n_cpts in [OPT_LIMS['layup_skin']]   (0-based)
+            lw1, lw2    : 2 * n_cpts in [OPT_LIMS['layup_web']]    (0-based)
+            lf1..lf4    : 4 * n_cpts in [OPT_LIMS['layup_flange']] (0-based)
+
+        Layup indices are 0-based: index k selects LAYUP_ORDER[k] (MAT{k+1}).
+        Ceilings are clipped to n_mats-1 so DE never samples a missing entry.
         '''
         xw1_lo, xw1_hi = float(OPT_LIMS['xw1'   ][0]), float(OPT_LIMS['xw1'   ][1])
         xw2_lo, xw2_hi = float(OPT_LIMS['xw2'   ][0]), float(OPT_LIMS['xw2'   ][1])
         tpr_lo, tpr_hi = float(OPT_LIMS['fl_tpr'][0]), float(OPT_LIMS['fl_tpr'][1])
         bf_lo,  bf_hi  = float(OPT_LIMS['bfk'   ][0]), float(OPT_LIMS['bfk'   ][1])
-        # Layup indices must address an actual MAT*: clip the global ceiling
-        # by the database size so DE can never sample a missing laminate.
-        lay_lo = int(OPT_LIMS['layup'][0])
-        lay_hi = min(int(OPT_LIMS['layup'][1]), int(n_mats))
+        # Layup indices are 0-based; clip hi so DE never samples a missing MAT.
+        max_idx = int(n_mats) - 1
+        sk_lo = int(OPT_LIMS['layup_skin'  ][0])
+        sk_hi = min(int(OPT_LIMS['layup_skin'  ][1]), max_idx)
+        wk_lo = int(OPT_LIMS['layup_web'   ][0])
+        wk_hi = min(int(OPT_LIMS['layup_web'   ][1]), max_idx)
+        fl_lo = int(OPT_LIMS['layup_flange'][0])
+        fl_hi = min(int(OPT_LIMS['layup_flange'][1]), max_idx)
 
         lo_blocks = [
             np.full(n_cpts,     xw1_lo),
             np.full(n_cpts,     xw2_lo),
             np.array([bf_lo, bf_lo, bf_lo, bf_lo]),
             np.full(n_cpts - 1, tpr_lo),
-            *(np.full(n_cpts, lay_lo) for _ in range(N_SEG_T1 + 1)),
+            np.full(n_cpts, sk_lo),   # ls1
+            np.full(n_cpts, sk_lo),   # ls2
+            np.full(n_cpts, wk_lo),   # lw1
+            np.full(n_cpts, wk_lo),   # lw2
+            np.full(n_cpts, fl_lo),   # lf1
+            np.full(n_cpts, fl_lo),   # lf2
+            np.full(n_cpts, fl_lo),   # lf3
+            np.full(n_cpts, fl_lo),   # lf4
         ]
         hi_blocks = [
             np.full(n_cpts,     xw1_hi),
             np.full(n_cpts,     xw2_hi),
             np.array([bf_hi, bf_hi, bf_hi, bf_hi]),
             np.full(n_cpts - 1, tpr_hi),
-            *(np.full(n_cpts, lay_hi) for _ in range(N_SEG_T1 + 1)),
+            np.full(n_cpts, sk_hi),   # ls1
+            np.full(n_cpts, sk_hi),   # ls2
+            np.full(n_cpts, wk_hi),   # lw1
+            np.full(n_cpts, wk_hi),   # lw2
+            np.full(n_cpts, fl_hi),   # lf1
+            np.full(n_cpts, fl_hi),   # lf2
+            np.full(n_cpts, fl_hi),   # lf3
+            np.full(n_cpts, fl_hi),   # lf4
         ]
 
         lo = np.concatenate(lo_blocks)

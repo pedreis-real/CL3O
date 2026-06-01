@@ -30,7 +30,7 @@ WEIGHTING_FACTOR = 1.0     # e.g. wm = 1000 -> transforms mass in kg to g
 # Analyzed lifting-surface side. Selects which half-span the load mapper
 # slices and which sign the spanwise stations carry through the pipeline.
 # "right" -> Y > 0 (root 0 -> tip +b/2);  "left" -> Y < 0 (root 0 -> tip -b/2).
-WING_SIDE = "right"                                   # "right" | "left"
+WING_SIDE = "left"                                   # "right" | "left"
 WING_SIDE_SIGN = +1.0 if WING_SIDE == "right" else -1.0
 
 # Differential Evolution default hyper-parameters
@@ -42,9 +42,9 @@ DE_HYPERPAR: dict = {
     'F'              : 0.7081,
     'lambda'         : 0.3930,
     'k_max'          : 400,
-    'seed'           : 42,
+    'seed'           : 67,
     'std_tol'        : 0.01,    # std_tol * mean_f < std_f ||| 0.01 -> 1 gram (mass) of std
-    'stall_patience' : 50,      # gens of no best-f improvement -> stop
+    'stall_patience' : 80,      # gens of no best-f improvement -> stop
 }
 
 # Relative tolerance used to detect best-f improvement for the stall counter
@@ -52,12 +52,32 @@ STALL_REL_TOL = 0.01    # 1 gram order
 
 # Optimization design-vector boundaries
 OPT_LIMS = {
-    'xw1'    : (0.10, 0.40),
-    'xw2'    : (0.30, 0.60),    # may overlap xw1; swap enforced at decode
-    'bfk'    : (0.02, 0.10),
-    'layup'  : (1, 22),
-    'fl_tpr' : (0.01, 1.0),
+    'xw1'          : (0.10, 0.40),
+    'xw2'          : (0.30, 0.75),  # may overlap xw1; swap enforced at decode
+    'bfk'          : (0.02, 0.10),
+    'layup_skin'   : (6, 11),       # ls1, ls2  - AP/QI group (torsion/shear)
+    'layup_web'    : (6, 11),       # lw1, lw2  - AP/QI group (torsion/shear)
+    'layup_flange' : (0, 5),        # lf1..lf4  - UD/CRS group (normal stress)
+    'fl_tpr'       : (0.01, 1.0),
 }
+
+# Canonical 0-based ordering of the curated laminate catalogue.
+# Index k in the DE design vector maps to LAYUP_ORDER[k] (i.e. MAT{k+1} in
+# laminate_db). Groups: UD 0-2, CRS 3-5, AP 6-8, QI 9-11.
+LAYUP_ORDER: list[str] = [
+    "MAT_CFRP_AS4_UD24",    # 0  - UD   CFRP AS4
+    "MAT_CFRP_IM7_UD24",    # 1  - UD   CFRP IM7
+    "MAT_SAND-HC_UD",       # 2  - UD   sandwich HC
+    "MAT_CFRP_AS4_CRS24",   # 3  - CRS  CFRP AS4
+    "MAT_CFRP_IM7_CRS24",   # 4  - CRS  CFRP IM7
+    "MAT_SAND-HC_CRS",      # 5  - CRS  sandwich HC
+    "MAT_CFRP_AS4_AP24",    # 6  - AP   CFRP AS4
+    "MAT_CFRP_IM7_AP24",    # 7  - AP   CFRP IM7
+    "MAT_SAND-HC_AP",       # 8  - AP   sandwich HC
+    "MAT_CFRP_AS4_QI24",    # 9  - QI   CFRP AS4
+    "MAT_CFRP_IM7_QI24",    # 10 - QI   CFRP IM7
+    "MAT_SAND-HC_QI",       # 11 - QI   sandwich HC
+]
 
 # Penalty paremeters
 PENALTY_VARS = {

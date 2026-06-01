@@ -254,17 +254,17 @@ export function GeometryPlot() {
   const snapConfig = { ...config, modeBarButtonsToAdd: [snapBtn] as any[] };
 
   const traces: Data[] = [
-    // Upper skin (ls1) — primary.
-    meshTrace(scene.surface, {
+    // Nose skin (ls1) — LE to front spar.
+    meshTrace(scene.surface_ls1, {
       color: matColor(lu?.ls1?.[0]),
       opacity: 0.65,
-      name: `skin upper  ls1=${lu?.ls1?.[0] ?? "?"}`,
+      name: `skin LE→spar  ls1=${lu?.ls1?.[0] ?? "?"}`,
     }),
-    // Lower skin (ls2) — secondary, lower opacity for visual separation.
-    meshTrace(scene.surface, {
+    // Box skin (ls2) — front spar to TE.
+    meshTrace(scene.surface_ls2, {
       color: matColor(lu?.ls2?.[0]),
-      opacity: 0.30,
-      name: `skin lower  ls2=${lu?.ls2?.[0] ?? "?"}`,
+      opacity: 0.65,
+      name: `skin spar→TE  ls2=${lu?.ls2?.[0] ?? "?"}`,
     }),
     meshTrace(scene.front_spar, {
       color: matColor(lu?.lw1?.[0]),

@@ -121,7 +121,7 @@ class StructuralMass:
 
     def _get_laminate(self, lam_idx: int) -> LaminateData:
         '''Retrieve LaminateData from the database by integer key.'''
-        return self.laminate_db[f"MAT{int(lam_idx)}"]
+        return self.laminate_db[f"MAT{int(lam_idx) + 1}"]
 
     def _element_length(self, idx_a: int, idx_b: int) -> float:
         '''Euclidean length between two section centroids.'''
