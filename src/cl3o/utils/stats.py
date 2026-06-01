@@ -389,3 +389,126 @@ class RunStats:
         ax.grid(axis="y", alpha=0.3)
         fig.tight_layout()
         self._save(fig, "anova_group_means")
+
+    # ----------------------------------------------------------- best design
+    def plot_best_design(self) -> None:
+        '''Render the four best-design figures from a run's last pkl.'''
+        run_dir = self.data.outputs_root / self.data.run_name
+        try:
+            rt = StatsHelper.load_last_pkl(run_dir)
+        except FileNotFoundError as exc:
+            self.logger.warning(f"{exc}\n-- skipping best-design figures.")
+            return
+        self._design_mass(rt)
+        self._design_margins(rt)
+        self._design_panel_stress(rt)
+        self._design_forces(rt)
+
+    def _design_mass(self, rt) -> None:
+        sco     = rt.score
+        panels  = float(np.nansum(np.asarray(getattr(sco, "panels", []), float)))
+        flanges = float(np.nansum(np.asarray(getattr(sco, "flanges", []), float)))
+        total   = float(getattr(sco, "total", panels + flanges))
+        labels  = ["Panels (skin+webs)", "Flanges", "Total"]
+        vals    = [panels, flanges, total]
+        fig, ax = plt.subplots(figsize=(6, 4))
+        bars = ax.bar(labels, vals, color=sns.color_palette("crest", 3))
+        for b, v in zip(bars, vals):
+            ax.text(b.get_x() + b.get_width() / 2, b.get_height(),
+                    f"{v:.3f}", ha="center", va="bottom", fontsize=9)
+        ax.set_ylabel("Mass  [kg]")
+        ax.set_title("Best-design structural mass breakdown")
+        ax.grid(axis="y", alpha=0.3)
+        fig.tight_layout()
+        self._save(fig, "design_mass")
+
+    def _design_margins(self, rt) -> None:
+        tsw, dsp = rt.tsw, rt.displ
+        tsw_ms = np.concatenate([
+            np.asarray(getattr(tsw, "MS_panels", []), float).ravel(),
+            np.asarray(getattr(tsw, "MS_booms",  []), float).ravel(),
+        ])
+        dsp_ms = np.concatenate([
+            np.asarray(getattr(dsp, "MS_u",  []), float).ravel(),
+            np.asarray(getattr(dsp, "MS_th", []), float).ravel(),
+        ])
+        fig, axes = plt.subplots(1, 2, figsize=(11, 4))
+        panels = (
+            (axes[0], tsw_ms, "Tsai-Wu margins of safety",
+             getattr(tsw, "MS_min", None)),
+            (axes[1], dsp_ms, "Displacement margins of safety",
+             getattr(dsp, "MS_min", None)),
+        )
+        for ax, ms, title, mmin in panels:
+            ms = ms[np.isfinite(ms)]
+            if ms.size:
+                sns.histplot(ms, ax=ax, bins=30, color="steelblue")
+            if mmin is not None and np.isfinite(float(mmin)):
+                ax.axvline(float(mmin), color="crimson", ls="--", lw=1.5,
+                           label=f"MS_min = {float(mmin):.3f}")
+                ax.legend(fontsize=8)
+            ax.axvline(0.0, color="black", lw=0.8)
+            ax.set_xlabel("Margin of safety")
+            ax.set_title(title)
+        fig.suptitle("Best-design margins of safety  (MS < 0 = failure)")
+        fig.tight_layout()
+        self._save(fig, "design_margins")
+
+    def _design_panel_stress(self, rt) -> None:
+        tauA = np.asarray(rt.stress.tauA, float)
+        tauB = np.asarray(rt.stress.tauB, float)
+        lc   = 0
+        if tauA.ndim == 3:
+            tau = np.maximum(np.abs(tauA[:, :, lc]), np.abs(tauB[:, :, lc]))
+        else:
+            tau = np.maximum(np.abs(tauA), np.abs(tauB))
+        coord = np.asarray(rt.mesh.coord, float)
+        conn  = np.asarray(rt.mesh.conn, int)[:, :2]
+        mid_y = np.abs(0.5 * (coord[conn[:, 0], 1] + coord[conn[:, 1], 1]))
+        order = np.argsort(mid_y)
+        t2     = getattr(rt.sections.sec_data[0], "T2", [])
+        labels = [p.get("label", f"P{j}") for j, p in enumerate(t2)]
+        fig, ax = plt.subplots(figsize=(9, 5))
+        for j in range(tau.shape[1]):
+            lbl = labels[j] if j < len(labels) else f"P{j}"
+            ax.plot(mid_y[order], tau[order, j], lw=1.0, label=lbl)
+        ax.set_xlabel("Spanwise  |Y|  [mm]")
+        ax.set_ylabel("max|tau|  [MPa]")
+        ax.set_title("Per-panel shear stress along span (load case 0)")
+        ax.legend(fontsize=6, ncol=2)
+        ax.grid(True, alpha=0.3)
+        fig.tight_layout()
+        self._save(fig, "design_panel_stress")
+
+    def _design_forces(self, rt) -> None:
+        fr  = rt.fea_rts
+        Qsc = np.asarray(fr.Q_sc, float)
+        Qc  = np.asarray(fr.Q_c,  float)
+        lc  = 0
+        coord = np.asarray(rt.mesh.coord, float)
+        conn  = np.asarray(rt.mesh.conn, int)[:, :2]
+        mid_y = np.abs(0.5 * (coord[conn[:, 0], 1] + coord[conn[:, 1], 1]))
+        order = np.argsort(mid_y)
+        span  = mid_y[order]
+
+        def comp(Q, row):
+            return Q[row, order, lc] if Q.ndim == 3 else Q[row, order]
+
+        series = {
+            "N  [N]":       comp(Qc,  0),
+            "Sy  [N]":      comp(Qsc, 1),
+            "Sz  [N]":      comp(Qsc, 2),
+            "T  [N.mm]":    comp(Qsc, 3),
+            "My  [N.mm]":   comp(Qc,  4),
+            "Mz  [N.mm]":   comp(Qc,  5),
+        }
+        fig, axes = plt.subplots(2, 3, figsize=(13, 7))
+        for ax, (name, vals) in zip(axes.ravel(), series.items()):
+            ax.plot(span, vals, color="navy", lw=1.4)
+            ax.axhline(0.0, color="black", lw=0.6)
+            ax.set_title(name)
+            ax.set_xlabel("|Y|  [mm]")
+            ax.grid(True, alpha=0.3)
+        fig.suptitle("Best-design internal force / moment diagrams (load case 0)")
+        fig.tight_layout()
+        self._save(fig, "design_forces")

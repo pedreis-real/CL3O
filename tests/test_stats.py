@@ -182,3 +182,32 @@ def test_plot_sensitivity_writes_pdfs(tmp_path):
     out = tmp_path / "fig"
     assert (out / "anova_eta_sq.pdf").is_file()
     assert (out / "anova_group_means.pdf").is_file()
+
+
+# ================================================================================
+# RunStats - best-design figures  (uses the heavy `runtime` fixture)
+# ================================================================================
+
+@pytest.mark.slow
+def test_plot_best_design_writes_pdfs(runtime, tmp_path):
+    from cl3o.utils.stats import StatsData, RunStats
+
+    run_dir = tmp_path / "outs" / "da62_sw_LHS-0"
+    run_dir.mkdir(parents=True)
+    with open(run_dir / "gen_0005.pkl", "wb") as fh:
+        pickle.dump(runtime, fh)
+
+    data = StatsData(
+        aircraft     = "da62",
+        sweep        = "sw",
+        run_name     = "da62_sw_LHS-0",
+        tools_out    = tmp_path / "tools",
+        outputs_root = tmp_path / "outs",
+        out_dir      = tmp_path / "fig",
+    )
+    RunStats(data, enable_logging=False).plot_best_design()
+
+    out = tmp_path / "fig"
+    for name in ("design_mass", "design_margins",
+                 "design_panel_stress", "design_forces"):
+        assert (out / f"{name}.pdf").is_file(), name
