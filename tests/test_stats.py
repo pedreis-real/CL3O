@@ -151,3 +151,34 @@ def test_plot_lhs_writes_pdfs(tmp_path):
     for name in ("lhs_corr_heatmap", "lhs_param_scatter",
                  "lhs_convergence", "lhs_speed_ecdf"):
         assert (out / f"{name}.pdf").is_file(), name
+
+
+# ================================================================================
+# RunStats - sensitivity figures
+# ================================================================================
+
+def test_plot_sensitivity_writes_pdfs(tmp_path):
+    from cl3o.utils.stats import StatsData, RunStats
+
+    sens = tmp_path / "tools" / "sensitivity"
+    sens.mkdir(parents=True)
+    (sens / "anova_results.csv").write_text(
+        "group,n_valid,mean_f,std_f,min_f,max_f,SS_within,SS_between,eta_sq\n"
+        "Mesas,20,795.2,426.5,91.5,1092.3,3638310.3,5000.0,0.101\n"
+        "Revestimento,20,910.2,345.2,82.8,1092.2,2382899.7,3000.0,0.017\n"
+    )
+    (sens / "anova_summary.csv").write_text(
+        "grand_mean,SS_total,df_between,df_within,F_stat,p_value\n"
+        "991.6,7629585.4,4,95,5.456,0.000535\n"
+    )
+    data = StatsData(
+        aircraft  = "da62",
+        sweep     = "sw",
+        tools_out = tmp_path / "tools",
+        out_dir   = tmp_path / "fig",
+    )
+    RunStats(data, enable_logging=False).plot_sensitivity()
+
+    out = tmp_path / "fig"
+    assert (out / "anova_eta_sq.pdf").is_file()
+    assert (out / "anova_group_means.pdf").is_file()

@@ -344,3 +344,48 @@ class RunStats:
         ax.grid(True, alpha=0.3)
         fig.tight_layout()
         self._save(fig, "lhs_speed_ecdf")
+
+    # ----------------------------------------------------------- sensitivity
+    def plot_sensitivity(self) -> None:
+        '''Render the two ANOVA figures (skips gracefully if missing).'''
+        p = self.data.anova_results
+        if not p.is_file():
+            self.logger.warning(
+                f"[CL3O] anova_results.csv not found -- skipping sensitivity figures.\n"
+                f"| path : {p}\n"
+                f"Run tools.sensitivity_analysis (variant-A schema) first."
+            )
+            return
+        df, summary = StatsHelper.load_anova(p, self.data.anova_summary)
+        self._anova_eta_sq(df, summary)
+        self._anova_group_means(df)
+
+    def _anova_eta_sq(self, df: pd.DataFrame, summary: dict | None) -> None:
+        d = df.dropna(subset=["eta_sq"]).sort_values("eta_sq")
+        fig, ax = plt.subplots(figsize=(8, 5))
+        sns.barplot(data=d, y="group", x="eta_sq", hue="group",
+                    palette="viridis", legend=False, ax=ax)
+        ax.set_xlabel("eta^2  (ANOVA effect size)")
+        ax.set_ylabel("")
+        title = "Structural group sensitivity -- one-way ANOVA"
+        if summary is not None and "F_stat" in summary and "p_value" in summary:
+            title += f"\nF = {summary['F_stat']:.3f},  p = {summary['p_value']:.3g}"
+        ax.set_title(title)
+        ax.grid(axis="x", alpha=0.3)
+        fig.tight_layout()
+        self._save(fig, "anova_eta_sq")
+
+    def _anova_group_means(self, df: pd.DataFrame) -> None:
+        d = df.dropna(subset=["mean_f"])
+        colors = sns.color_palette("muted", len(d))
+        fig, ax = plt.subplots(figsize=(8, 5))
+        ax.bar(d["group"], d["mean_f"],
+               yerr=d["std_f"] if "std_f" in d.columns else None,
+               capsize=4, color=colors)
+        ax.set_ylabel("Fitness  mean_f  (+/- std_f)")
+        ax.set_xlabel("")
+        ax.set_title("Per-group fitness mean and dispersion")
+        plt.setp(ax.get_xticklabels(), rotation=15, ha="right")
+        ax.grid(axis="y", alpha=0.3)
+        fig.tight_layout()
+        self._save(fig, "anova_group_means")
