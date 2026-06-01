@@ -211,3 +211,28 @@ def test_plot_best_design_writes_pdfs(runtime, tmp_path):
     for name in ("design_mass", "design_margins",
                  "design_panel_stress", "design_forces"):
         assert (out / f"{name}.pdf").is_file(), name
+
+
+# ================================================================================
+# RunStats - run_all degrades gracefully on partial data
+# ================================================================================
+
+def test_run_all_partial_data(tmp_path):
+    from cl3o.utils.stats import StatsData, RunStats
+
+    # Only LHS results present; ANOVA + pkl absent. run_all must not raise.
+    tools_out, outs = _write_lhs_fixtures(tmp_path)
+    data = StatsData(
+        aircraft     = "da62",
+        sweep        = "sw",
+        tools_out    = tools_out,
+        outputs_root = outs,
+        out_dir      = tmp_path / "fig",
+    )
+    RunStats(data, enable_logging=False).run_all()
+
+    out = tmp_path / "fig"
+    assert (out / "lhs_corr_heatmap.pdf").is_file()
+    # ANOVA + design figures skipped (no inputs), so they must be absent.
+    assert not (out / "anova_eta_sq.pdf").is_file()
+    assert not (out / "design_mass.pdf").is_file()

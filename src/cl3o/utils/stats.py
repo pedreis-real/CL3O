@@ -512,3 +512,27 @@ class RunStats:
         fig.suptitle("Best-design internal force / moment diagrams (load case 0)")
         fig.tight_layout()
         self._save(fig, "design_forces")
+
+    # ------------------------------------------------------------------- all
+    def run_all(self) -> None:
+        '''Render every available figure; skip sources with missing inputs.'''
+        self.logger.info("Generating LHS sweep figures ...")
+        self.plot_lhs()
+        self.logger.info("Generating sensitivity figures ...")
+        self.plot_sensitivity()
+        self.logger.info("Generating best-design figures ...")
+        self.plot_best_design()
+        self.logger.info(f"Done. Figures written to {self.data.out_dir}")
+
+
+# ================================================================================
+# Entry point
+# ================================================================================
+
+if __name__ == "__main__":
+    data = StatsData(
+        aircraft = "da62",
+        sweep    = "tune-de-3",
+        run_name = "da62_tune-de-3_LHS-0",
+    )
+    RunStats(data).run_all()
