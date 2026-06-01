@@ -153,7 +153,7 @@ export function GeometryPlot() {
   const legendItems: { name: string; color: string; idx: number; unknown?: boolean }[] | null = (() => {
     if (!hasFam || !lu) return null;
     const rootIdxList = [
-      lu.ls1?.[0], lu.lw1?.[0], lu.lw2?.[0],
+      lu.ls1?.[0], lu.ls2?.[0], lu.lw1?.[0], lu.lw2?.[0],
       lu.lf1?.[0], lu.lf2?.[0], lu.lf3?.[0], lu.lf4?.[0],
     ];
     const seen = new Set<string>();
@@ -175,10 +175,17 @@ export function GeometryPlot() {
   })();
 
   const traces: Data[] = [
+    // Upper skin (ls1) — primary.
     meshTrace(scene.surface, {
       color: matColor(lu?.ls1?.[0]),
       opacity: 0.65,
-      name: `skin  ls1=${lu?.ls1?.[0] ?? "?"} / ls2=${lu?.ls2?.[0] ?? "?"}`,
+      name: `skin upper  ls1=${lu?.ls1?.[0] ?? "?"}`,
+    }),
+    // Lower skin (ls2) — secondary, lower opacity for visual separation.
+    meshTrace(scene.surface, {
+      color: matColor(lu?.ls2?.[0]),
+      opacity: 0.30,
+      name: `skin lower  ls2=${lu?.ls2?.[0] ?? "?"}`,
     }),
     meshTrace(scene.front_spar, {
       color: matColor(lu?.lw1?.[0]),
