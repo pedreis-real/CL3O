@@ -26,3 +26,6 @@ dist/
 
 # Misc
 *.local
+
+# Monography
+mamografia/
