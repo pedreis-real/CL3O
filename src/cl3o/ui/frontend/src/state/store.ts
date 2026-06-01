@@ -98,7 +98,7 @@ export const useStore = create<AppState>((set, get) => ({
   loadcase: 0,
   deformed: false,
   scale: 1,
-  end: "avg",
+  end: "B",
   playing: false,
   field: "disp",
   dispComp: "w",
