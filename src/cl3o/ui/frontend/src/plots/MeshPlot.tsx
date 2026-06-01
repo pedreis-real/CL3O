@@ -96,6 +96,7 @@ export function MeshPlot() {
         intensity, colorscale: FEMAP_CMAP, opacity: 0.97,
         cmin, cmax,
         colorbarTitle: DISP_LABEL[contourComp] ?? contourComp, name: "deformed",
+        hovertemplate: "disp = %{intensity:.3g} mm<extra></extra>",
       }),
       meshTrace(scene.front_spar, {
         intensity: stripIntensity(scene.front_spar),

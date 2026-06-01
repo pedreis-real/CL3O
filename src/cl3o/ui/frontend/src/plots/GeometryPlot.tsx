@@ -178,22 +178,26 @@ export function GeometryPlot() {
     meshTrace(scene.surface, {
       color: matColor(lu?.ls1?.[0]),
       opacity: 0.65,
-      name: "skin",
+      name: `skin  ls1=${lu?.ls1?.[0] ?? "?"} / ls2=${lu?.ls2?.[0] ?? "?"}`,
     }),
     meshTrace(scene.front_spar, {
       color: matColor(lu?.lw1?.[0]),
       opacity: 0.65,
-      name: "aft spar",
+      name: `front spar  lw1=${lu?.lw1?.[0] ?? "?"}`,
     }),
     meshTrace(scene.rear_spar, {
       color: matColor(lu?.lw2?.[0]),
       opacity: 0.65,
-      name: "rear spar",
+      name: `rear spar  lw2=${lu?.lw2?.[0] ?? "?"}`,
     }),
     sparEdgeTrace(scene.front_spar, "#000000", "front spar edge"),
     sparEdgeTrace(scene.rear_spar, "#000000", "rear spar edge"),
     ...(scene.flanges ?? []).map((fl) =>
-      meshTrace(fl, { color: matColor(fl.layup_idx), opacity: 0.65, name: fl.label }),
+      meshTrace(fl, {
+        color: matColor(fl.layup_idx),
+        opacity: 0.65,
+        name: `${fl.label}  lam=${fl.layup_idx}`,
+      }),
     ),
   ];
 

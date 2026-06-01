@@ -91,7 +91,7 @@ export function meshTrace(m: Mesh3D, opts: MeshOpts): Data {
     if (opts.hovertemplate) t.hovertemplate = opts.hovertemplate;
   } else {
     t.color = opts.color ?? "#4f8cff";
-    t.hoverinfo = "skip";
+    t.hovertemplate = "%{fullData.name}<extra></extra>";
   }
   return t as Data;
 }
