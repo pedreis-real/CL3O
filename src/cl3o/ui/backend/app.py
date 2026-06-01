@@ -12,6 +12,7 @@ Run (after `pip install -e .[ui]`):
 ================================================================================
 '''
 
+import csv
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Query
@@ -19,10 +20,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
+from cl3o.paths import ROOT_DIR
 from . import extract
 from . import surface
 from .repository import RunRepository
 from .serialize import to_jsonable
+
+_ANOVA_RESULTS = ROOT_DIR / "tools" / "output" / "sensitivity" / "anova_results.csv"
+_ANOVA_SUMMARY = ROOT_DIR / "tools" / "output" / "sensitivity" / "anova_summary.csv"
 
 app = FastAPI(title="CL3O Visualization API", version="1.0")
 
@@ -152,6 +157,34 @@ def geometry(
     scene = surface.build_scene(rt, wing, afl, lc=lc, scale=scale, deform=deformed)
     scene["laminate_catalog"] = repo.get_laminate_catalog(run_id)
     return _json(scene)
+
+
+@app.get("/api/sensitivity")
+def sensitivity():
+    if not _ANOVA_RESULTS.is_file():
+        return _json({"available": False})
+    groups = []
+    with open(_ANOVA_RESULTS, newline="") as fh:
+        for row in csv.DictReader(fh):
+            groups.append({
+                "group":    row["group"],
+                "eta_sq":   float(row["eta_sq"]),
+                "mean_f":   float(row["mean_f"]),
+                "std_f":    float(row["std_f"]),
+                "min_f":    float(row["min_f"]),
+                "max_f":    float(row["max_f"]),
+            })
+    summary = None
+    if _ANOVA_SUMMARY.is_file():
+        with open(_ANOVA_SUMMARY, newline="") as fh:
+            row = next(csv.DictReader(fh))
+            summary = {
+                "F_stat":     float(row["F_stat"]),
+                "p_value":    float(row["p_value"]),
+                "df_between": int(float(row["df_between"])),
+                "df_within":  int(float(row["df_within"])),
+            }
+    return _json({"available": True, "groups": groups, "summary": summary})
 
 
 # ------------------------------------------------------------------
