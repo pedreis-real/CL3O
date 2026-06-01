@@ -141,6 +141,15 @@ def stress3d(run_id: str, k: int, lc: int = Query(0), end: str = Query("avg")):
     return _json(surface.build_stress_surface(rt, wing, lc=lc, end=end))
 
 
+@app.get("/api/runs/{run_id}/gen/{k}/tsw3d")
+def tsw3d(run_id: str, k: int, lc: int = Query(0), end: str = Query("avg")):
+    rt = _snapshot(run_id, k)
+    wing = repo.get_wing_data(run_id)
+    if wing is None:
+        raise HTTPException(status_code=404, detail="wing data not found")
+    return _json(surface.build_tsw_surface(rt, wing, lc=lc, end=end))
+
+
 @app.get("/api/runs/{run_id}/gen/{k}/geometry")
 def geometry(
     run_id: str,

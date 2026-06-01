@@ -427,6 +427,107 @@ def build_stress_surface(rt, wing, lc: int = 0, end: str = "avg") -> dict:
     }
 
 
+def build_tsw_surface(rt, wing, lc: int = 0, end: str = "avg") -> dict:
+    '''
+    Build the Tsai-Wu strength-ratio (R) surface for one snapshot.
+
+    Identical lofting geometry to build_stress_surface, but coloured by the
+    Tsai-Wu strength ratio R (failure at R >= 1) instead of shear stress.
+
+    Args:
+        rt   : RuntimeData snapshot.
+        wing : WingData (typed) for the run.
+        lc   : Load case index.
+        end  : "A" / "B" / "avg" -- element end selector.
+
+    Returns:
+        Dict with mesh3d vertices + triangle indices, per-face R intensity,
+        boom rods coloured by boom R, and scalar limits.
+    '''
+    sec     = rt.sections.sec_data
+    coord   = np.asarray(rt.mesh.coord, float)
+    conn    = np.asarray(rt.mesh.conn, int)[:, :2]
+
+    tsw = rt.tsw
+    R_panels_arr = np.asarray(tsw.R_panels, float)  # (m, 10, 2, nc)
+    R_booms_arr  = np.asarray(tsw.R_booms,  float)  # (m,  7, 2, nc)
+
+    nc = R_panels_arr.shape[3] if R_panels_arr.ndim == 4 else 1
+    lc = max(0, min(int(lc), nc - 1))
+
+    end_idx = 0 if end == "A" else (1 if end == "B" else None)
+
+    def _pick(arr: np.ndarray) -> np.ndarray:
+        # arr shape: (m, n_items, 2, nc)
+        if end_idx is not None:
+            return arr[:, :, end_idx, lc]
+        return 0.5 * (arr[:, :, 0, lc] + arr[:, :, 1, lc])
+
+    R_p = _pick(R_panels_arr)   # (m, 10)
+    R_b = _pick(R_booms_arr)    # (m,  7)
+
+    mid_y  = 0.5 * (coord[conn[:, 0], 1] + coord[conn[:, 1], 1])
+    left_e = sorted(range(conn.shape[0]), key=lambda e: abs(mid_y[e]))
+
+    verts: list = []
+    fi, fj, fk, fc = [], [], [], []
+
+    for e in left_e:
+        node_a, node_b = int(conn[e, 0]), int(conn[e, 1])
+        y_a = float(sec[node_a].C[1])
+        y_b = float(sec[node_b].C[1])
+        n_panels = min(len(sec[node_a].T2), len(sec[node_b].T2))
+
+        for jp in range(n_panels):
+            pts_a = np.asarray(sec[node_a].T2[jp]["pts"], float)
+            pts_b = np.asarray(sec[node_b].T2[jp]["pts"], float)
+            r_val = float(R_p[e, jp]) if jp < R_p.shape[1] else np.nan
+
+            na, nb_pts = pts_a.shape[0], pts_b.shape[0]
+            n = min(na, nb_pts)
+            if na != n:
+                idx = np.round(np.linspace(0, na - 1, n)).astype(int)
+                pts_a = pts_a[idx]
+            if nb_pts != n:
+                idx = np.round(np.linspace(0, nb_pts - 1, n)).astype(int)
+                pts_b = pts_b[idx]
+
+            base = len(verts)
+            for i in range(n):
+                verts.append([pts_a[i, 0], y_a, pts_a[i, 1]])
+            for i in range(n):
+                verts.append([pts_b[i, 0], y_b, pts_b[i, 1]])
+
+            for i in range(n - 1):
+                ia0, ia1 = base + i, base + i + 1
+                ib0, ib1 = base + n + i, base + n + i + 1
+                fi += [ia0, ia0]
+                fj += [ia1, ib1]
+                fk += [ib1, ib0]
+                fc += [r_val, r_val]
+
+    r_fin = np.array([v for v in fc if np.isfinite(v)], dtype=float)
+    r_max = float(np.nanmax(r_fin)) if r_fin.size else 2.0
+    r_min = float(np.nanmin(r_fin)) if r_fin.size else 0.0
+
+    # Boom rods coloured by R (reuse _build_boom_rods with R_b as the "sigma" arg,
+    # but add an extra nc-dim so the helper's indexing works).
+    R_b_nc = R_b[:, :, np.newaxis]   # (m, 7, 1)  -- fake nc=1 dimension
+    boom_rods, r_abs_booms = _build_boom_rods(R_b_nc, left_e, conn, sec, 0, 1)
+
+    return {
+        "vertices": np.asarray(verts, float) if verts else np.zeros((0, 3)),
+        "i": fi, "j": fj, "k": fk,
+        "intensity": fc,
+        "r_max":     r_max,
+        "r_min":     r_min,
+        "boom_rods": boom_rods,
+        "r_abs_booms": r_abs_booms,
+        "n_elements":  len(left_e),
+        "n_loadcases": nc,
+    }
+
+
 def _build_boom_rods(
     sig_arr: np.ndarray,
     left_e: list,
