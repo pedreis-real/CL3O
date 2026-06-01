@@ -173,6 +173,20 @@ export interface StressScene {
   n_loadcases: number;
 }
 
+export interface TswScene {
+  vertices:    Vec3[];
+  i:           number[];
+  j:           number[];
+  k:           number[];
+  intensity:   number[];   // R value per face
+  r_max:       number;
+  r_min:       number;
+  boom_rods:   BoomRod[];  // rods coloured by R (using 'sigma' field for R values)
+  r_abs_booms: number;
+  n_elements:  number;
+  n_loadcases: number;
+}
+
 export interface Forces {
   span: number[];
   local: Record<string, number[]>;

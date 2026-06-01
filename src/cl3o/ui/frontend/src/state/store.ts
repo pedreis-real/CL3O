@@ -36,7 +36,7 @@ interface AppState {
   showSectionAxes: boolean;
 
   // stress tab controls
-  stressMode: "stress" | "flux";
+  stressMode: "stress" | "flux" | "tsw";
 
   // misc tab sub-view
   miscTab: "convergence" | "search" | "sensitivity";
@@ -77,7 +77,7 @@ interface AppState {
   setForceComp: (c: string) => void;
   setNLoadcases: (n: number) => void;
   setShowSectionAxes: (b: boolean) => void;
-  setStressMode: (m: "stress" | "flux") => void;
+  setStressMode: (m: "stress" | "flux" | "tsw") => void;
   setMiscTab: (t: "convergence" | "search" | "sensitivity") => void;
   setDistinctIndex: (i: number) => void;
   setColorScaleFixed: (b: boolean) => void;
