@@ -4,6 +4,7 @@ import { useStore } from "../state/store";
 import { api } from "../api/client";
 import type { Forces, Scene } from "../types";
 import Plot, { baseLayout, config, meshTrace, scene3d } from "./Plot";
+import { useSnapshotButton } from "../hooks/useSnapshotButton";
 import type { Mesh3D } from "../types";
 import { FEMAP_CMAP } from "./colors";
 
@@ -60,6 +61,9 @@ export function MeshPlot() {
   }, [runId, gen, field, loadcase, scale, setNLoadcases]);
 
   if (err) return <div className="plot-error">{err}</div>;
+
+  const snapBtn = useSnapshotButton(runId, gen, "mesh");
+  const snapConfig = { ...config, modeBarButtonsToAdd: [snapBtn] as any[] };
 
   // -------- Displacement: deformed surface colormapped by component --------
   if (field === "disp") {
@@ -121,7 +125,7 @@ export function MeshPlot() {
           ...baseLayout, showlegend: true, legend: { x: 0, y: 1, font: { size: 11 } },
           scene: scene3d, uirevision: `mesh:${runId}`,
         }}
-        config={config}
+        config={snapConfig}
         style={{ width: "100%", height: "100%" }}
         useResizeHandler
       />
@@ -156,7 +160,7 @@ export function MeshPlot() {
         xaxis: { title: "span  |Y| from root [mm]", gridcolor: "#1f2838", zeroline: false },
         yaxis: { title: `${forceComp}  [${unit}]`, gridcolor: "#1f2838", zerolinecolor: "#33405a", range: [yMin, yMax] },
       }}
-      config={config}
+      config={snapConfig}
       style={{ width: "100%", height: "100%" }}
       useResizeHandler
     />

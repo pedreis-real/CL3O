@@ -3,6 +3,7 @@ import { useStore } from "../state/store";
 import { api } from "../api/client";
 import type { AnovaGroup, SearchSpace, SensitivityData } from "../types";
 import Plot, { baseLayout, config } from "./Plot";
+import { useSnapshotButton } from "../hooks/useSnapshotButton";
 import { SEARCH_CMAP } from "./colors";
 
 const TABS: { key: "convergence" | "search" | "sensitivity"; label: string }[] = [
@@ -40,7 +41,9 @@ export function MiscPlot() {
 }
 
 function ConvergenceView() {
-  const { manifest } = useStore();
+  const { manifest, runId, gen } = useStore();
+  const snapBtn = useSnapshotButton(runId, gen, "convergence");
+  const snapConfig = { ...config, modeBarButtonsToAdd: [snapBtn] as any[] };
   if (!manifest) return null;
   const k = (manifest.best_f_hist || []).map((_, i) => i);
   return (
@@ -77,7 +80,7 @@ function ConvergenceView() {
           showgrid: false, zeroline: false,
         },
       }}
-      config={config}
+      config={snapConfig}
       style={{ width: "100%", height: "100%" }}
       useResizeHandler
     />
@@ -85,7 +88,9 @@ function ConvergenceView() {
 }
 
 function SearchSpaceView() {
-  const { runId } = useStore();
+  const { runId, gen } = useStore();
+  const snapBtn = useSnapshotButton(runId, gen, "search");
+  const snapConfig = { ...config, modeBarButtonsToAdd: [snapBtn] as any[] };
   const [data, setData] = useState<SearchSpace | null>(null);
   const [err, setErr]   = useState<string | null>(null);
   const [show3D, setShow3D] = useState(false);
@@ -165,7 +170,7 @@ function SearchSpaceView() {
                 zaxis: { title: `PC3 (${((ev[2] ?? 0) * 100).toFixed(1)}%)`, color: "#7c8aa5", gridcolor: "#1f2838", backgroundcolor: "rgba(0,0,0,0)" },
               } as never,
             }}
-            config={config}
+            config={snapConfig}
             style={{ width: "100%", height: "100%" }}
             useResizeHandler
           />
@@ -243,7 +248,7 @@ function SearchSpaceView() {
               font: { color: "#7c8aa5", size: 11 },
             }],
           }}
-          config={config}
+          config={snapConfig}
           style={{ width: "100%", height: "100%" }}
           useResizeHandler
         />
@@ -253,6 +258,9 @@ function SearchSpaceView() {
 }
 
 function SensitivityView() {
+  const { runId, gen } = useStore();
+  const snapBtn = useSnapshotButton(runId, gen, "sensitivity");
+  const snapConfig = { ...config, modeBarButtonsToAdd: [snapBtn] as any[] };
   const [data, setData] = useState<SensitivityData | null>(null);
   const [err,  setErr]  = useState<string | null>(null);
 
@@ -322,7 +330,7 @@ function SensitivityView() {
             xaxis: { title: "eta2", gridcolor: "#1f2838", zeroline: true, zerolinecolor: "#3a4460" },
             yaxis: { gridcolor: "#1f2838", automargin: true },
           }}
-          config={config}
+          config={snapConfig}
           style={{ width: "100%", height: "100%" }}
           useResizeHandler
         />
@@ -340,7 +348,7 @@ function SensitivityView() {
             yaxis: { gridcolor: "#1f2838", automargin: true },
             boxmode: "group",
           }}
-          config={config}
+          config={snapConfig}
           style={{ width: "100%", height: "100%" }}
           useResizeHandler
         />

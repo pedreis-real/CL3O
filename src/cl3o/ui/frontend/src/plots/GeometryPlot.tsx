@@ -4,6 +4,7 @@ import { useStore } from "../state/store";
 import { api } from "../api/client";
 import type { LaminateEntry, Scene } from "../types";
 import Plot, { baseLayout, config, meshTrace, scene3d, sparEdgeTrace } from "./Plot";
+import { useSnapshotButton } from "../hooks/useSnapshotButton";
 import { LAM_FAMILY_COLOR, materialColor, type LamFamily } from "./colors";
 
 interface XRow { i: number; variable: string; cp: string; value: number }
@@ -249,6 +250,9 @@ export function GeometryPlot() {
     return items.length ? items : null;
   })();
 
+  const snapBtn = useSnapshotButton(runId, gen, "geometry");
+  const snapConfig = { ...config, modeBarButtonsToAdd: [snapBtn] as any[] };
+
   const traces: Data[] = [
     // Upper skin (ls1) — primary.
     meshTrace(scene.surface, {
@@ -294,7 +298,7 @@ export function GeometryPlot() {
           scene: scene3d,
           uirevision: `geo:${runId}`,
         }}
-        config={config}
+        config={snapConfig}
         style={{ width: "100%", height: "100%" }}
         useResizeHandler
       />

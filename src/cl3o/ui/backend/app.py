@@ -12,15 +12,18 @@ Run (after `pip install -e .[ui]`):
 ================================================================================
 '''
 
+import base64
 import csv
+from datetime import datetime
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel as _BaseModel
 
-from cl3o.paths import ROOT_DIR
+from cl3o.paths import ROOT_DIR, OUTPUTS_DIR
 from . import extract
 from . import surface
 from .repository import RunRepository
@@ -194,6 +197,24 @@ def sensitivity():
                 "df_within":  int(float(row["df_within"])),
             }
     return _json({"available": True, "groups": groups, "summary": summary})
+
+
+class _SnapBody(_BaseModel):
+    run_id: str
+    gen:    int
+    view:   str
+    data:   str   # base64-encoded PNG
+
+@app.post("/api/snaps")
+def save_snap(body: _SnapBody):
+    snaps_dir = OUTPUTS_DIR / "snaps"
+    snaps_dir.mkdir(parents=True, exist_ok=True)
+    ts = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+    fname = f"{body.run_id}_gen{body.gen:04d}_{body.view}_{ts}.png"
+    path  = snaps_dir / fname
+    raw   = base64.b64decode(body.data)
+    path.write_bytes(raw)
+    return _json({"path": str(path)})
 
 
 # ------------------------------------------------------------------

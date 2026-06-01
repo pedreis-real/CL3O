@@ -24,9 +24,9 @@ export const baseLayout = {
 export const config = {
   displaylogo: false,
   responsive: true,
-  // 2x raster so the snapshot button produces a publishable PNG.
+  modeBarButtonsToRemove: ["toImage" as any],
   toImageButtonOptions: { format: "png" as const, scale: 2 },
-};
+} as any;
 
 // Shared 3D scene config (data aspect ratio, dark axes).
 export const scene3d = {

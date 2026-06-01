@@ -4,6 +4,7 @@ import { useStore } from "../state/store";
 import { api } from "../api/client";
 import type { Mesh3D, StressScene, TswScene } from "../types";
 import Plot, { baseLayout, config, meshTrace, scene3d } from "./Plot";
+import { useSnapshotButton } from "../hooks/useSnapshotButton";
 
 // FEMAP-style rainbow colormap for shear stress tau.
 const TAU_CMAP: [number, string][] = [
@@ -75,6 +76,9 @@ export function StressPlot() {
   if (mode !== "tsw" && !st)  return <div className="plot-loading">Loading stress state…</div>;
   if (mode === "tsw"  && !tsw) return <div className="plot-loading">Loading failure state…</div>;
 
+  const snapBtn = useSnapshotButton(runId, gen, "stress");
+  const snapConfig = { ...config, modeBarButtonsToAdd: [snapBtn] as any[] };
+
   // -------- Stress mode --------
   if (mode === "stress" && st) {
     const panelMesh: Mesh3D = { vertices: st.vertices, i: st.i, j: st.j, k: st.k };
@@ -135,7 +139,7 @@ export function StressPlot() {
         <Plot
           data={traces}
           layout={{ ...baseLayout, margin: { l: 0, r: 100, t: 8, b: 0 }, scene: scene3d, showlegend: false }}
-          config={config}
+          config={snapConfig}
           style={{ width: "100%", flex: 1 }}
           useResizeHandler
         />
@@ -181,7 +185,7 @@ export function StressPlot() {
         <Plot
           data={traces}
           layout={{ ...baseLayout, margin: { l: 0, r: 80, t: 8, b: 0 }, scene: scene3d, showlegend: false }}
-          config={config}
+          config={snapConfig}
           style={{ width: "100%", flex: 1 }}
           useResizeHandler
         />
@@ -253,7 +257,7 @@ export function StressPlot() {
         <Plot
           data={tswTraces}
           layout={{ ...baseLayout, margin: { l: 0, r: 100, t: 8, b: 0 }, scene: scene3d, showlegend: false }}
-          config={config}
+          config={snapConfig}
           style={{ width: "100%", flex: 1 }}
           useResizeHandler
         />
