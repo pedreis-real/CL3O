@@ -224,3 +224,123 @@ class StatsHelper:
                 r, _ = spearmanr(df[p], df[o])
                 rho.loc[p, o] = float(r)
         return rho
+
+
+# ================================================================================
+# Main - figure orchestrator
+# ================================================================================
+
+class RunStats:
+    '''Render post-hoc CL3O result figures from archived artifacts.'''
+
+    def __init__(self, data: StatsData, enable_logging: bool = True) -> None:
+        self.data   = data
+        self.logger = io.setup_logger(self, enable_logging)
+        sns.set_theme(context="paper", style="whitegrid")
+
+    # ---------------------------------------------------------------- helpers
+    def _save(self, fig, name: str) -> None:
+        '''Save and close a figure as <out_dir>/<name>.<fmt>.'''
+        path = self.data.out_dir / f"{name}.{self.data.fmt}"
+        fig.savefig(path, dpi=self.data.dpi, bbox_inches="tight")
+        plt.close(fig)
+        self.logger.info(f"  saved -> {path}")
+
+    # ------------------------------------------------------------------- LHS
+    def plot_lhs(self) -> None:
+        '''Render the four LHS-sweep figures (skips gracefully if missing).'''
+        p = self.data.lhs_results
+        if not p.is_file():
+            self.logger.warning(
+                f"[CL3O] LHS results.csv not found -- skipping LHS figures.\n"
+                f"| path : {p}"
+            )
+            return
+        df = StatsHelper.load_lhs_results(p)
+        self._lhs_corr_heatmap(df)
+        self._lhs_param_scatter(df)
+        curves = StatsHelper.load_rate_curves(
+            self.data.outputs_root, self.data.rate_pattern
+        )
+        if curves:
+            self._lhs_convergence(curves, df)
+        else:
+            self.logger.warning(
+                "[CL3O] No per-sample rate.csv found -- skipping convergence figure."
+            )
+        self._lhs_speed_ecdf(df)
+
+    def _lhs_corr_heatmap(self, df: pd.DataFrame) -> None:
+        params   = [c for c in _LHS_PARAMS   if c in df.columns]
+        outcomes = [c for c in _LHS_OUTCOMES if c in df.columns]
+        rho = StatsHelper.spearman_matrix(df, params, outcomes)
+        fig, ax = plt.subplots(figsize=(7, 4))
+        sns.heatmap(rho, annot=True, fmt=".2f", cmap="vlag", center=0.0,
+                    vmin=-1.0, vmax=1.0, ax=ax,
+                    cbar_kws={"label": "Spearman rho"})
+        ax.set_title("LHS hyper-parameter / outcome rank correlation")
+        fig.tight_layout()
+        self._save(fig, "lhs_corr_heatmap")
+
+    def _lhs_param_scatter(self, df: pd.DataFrame) -> None:
+        params = [c for c in _LHS_PARAMS if c in df.columns]
+        hue    = "converged" if "converged" in df.columns else None
+        fig, axes = plt.subplots(2, 2, figsize=(9, 7))
+        flat = axes.ravel()
+        for ax, par in zip(flat, params):
+            sns.scatterplot(data=df, x=par, y="best_f_final", hue=hue,
+                            palette="Set1", ax=ax, legend=False)
+            x = df[par].to_numpy(float)
+            y = df["best_f_final"].to_numpy(float)
+            if np.ptp(x) > 0:
+                b, a = np.polyfit(x, y, 1)
+                xs = np.linspace(x.min(), x.max(), 50)
+                ax.plot(xs, a + b * xs, color="black", lw=1.0, ls="--")
+            ax.set_ylabel("best_f_final")
+        for ax in flat[len(params):]:
+            ax.set_visible(False)
+        fig.suptitle("Hyper-parameter vs final fitness (colour = converged)")
+        fig.tight_layout()
+        self._save(fig, "lhs_param_scatter")
+
+    def _lhs_convergence(
+        self, curves: dict[int, pd.DataFrame], df: pd.DataFrame
+    ) -> None:
+        best_idx = None
+        if {"best_f_final", "sample_idx"}.issubset(df.columns):
+            best_idx = int(df.loc[df["best_f_final"].idxmin(), "sample_idx"])
+        fig, ax = plt.subplots(figsize=(9, 6))
+        for idx, rc in curves.items():
+            is_best = idx == best_idx
+            ax.semilogy(
+                rc["k"], rc["best_f"],
+                color  = "crimson" if is_best else "0.7",
+                lw     = 1.8 if is_best else 0.8,
+                zorder = 3 if is_best else 1,
+                label  = f"#{idx} (best)" if is_best else None,
+            )
+            conv_rows = rc[rc["conv"] == "Y"]
+            if not conv_rows.empty:
+                kk = conv_rows.iloc[0]
+                ax.scatter([kk["k"]], [kk["best_f"]], s=18,
+                           color="black", zorder=4)
+        ax.set_xlabel("Generation  k")
+        ax.set_ylabel("best_f  [log scale]")
+        ax.set_title(f"DE convergence -- {len(curves)} LHS samples")
+        if best_idx is not None:
+            ax.legend(fontsize=8)
+        ax.grid(True, which="both", alpha=0.3)
+        fig.tight_layout()
+        self._save(fig, "lhs_convergence")
+
+    def _lhs_speed_ecdf(self, df: pd.DataFrame) -> None:
+        if "n_gens" not in df.columns:
+            return
+        fig, ax = plt.subplots(figsize=(7, 4))
+        sns.ecdfplot(data=df, x="n_gens", ax=ax)
+        ax.set_xlabel("Generations to stop  n_gens")
+        ax.set_ylabel("ECDF")
+        ax.set_title("Convergence-speed distribution across LHS samples")
+        ax.grid(True, alpha=0.3)
+        fig.tight_layout()
+        self._save(fig, "lhs_speed_ecdf")

@@ -106,3 +106,48 @@ def test_load_anova_with_and_without_summary(tmp_path):
 
     _, no_summary = StatsHelper.load_anova(res, tmp_path / "missing.csv")
     assert no_summary is None
+
+
+# ================================================================================
+# RunStats - LHS figures
+# ================================================================================
+
+def _write_lhs_fixtures(tmp_path):
+    '''Create a minimal tools_out/results.csv and outputs/ rate.csv tree.'''
+    tools_out = tmp_path / "tools"
+    sweep_dir = tools_out / "sw"
+    sweep_dir.mkdir(parents=True)
+    (sweep_dir / "results.csv").write_text(
+        "sample_idx,NP,CR,F,lambda,k_max_budget,n_gens,converged,"
+        "best_f_final,feasible_f,gen_to_half,elapsed_s\n"
+        "0,65,0.63,0.88,0.31,400,251,True,35.5,35.5,251,825.5\n"
+        "1,73,0.74,1.50,0.01,400,193,True,36.5,36.5,193,926.6\n"
+        "2,17,0.78,0.33,0.10,400,232,True,38.1,38.1,155,233.6\n"
+    )
+    outs = tmp_path / "outs"
+    for k in (0, 1, 2):
+        d = outs / f"da62_sw_LHS-{k}"
+        d.mkdir(parents=True)
+        (d / "rate.csv").write_text(
+            "k,best_f,rate,conv\n0,55.0,0.0,N\n1,40.0,0.27,N\n2,35.5,0.11,Y\n"
+        )
+    return tools_out, outs
+
+
+def test_plot_lhs_writes_pdfs(tmp_path):
+    from cl3o.utils.stats import StatsData, RunStats
+
+    tools_out, outs = _write_lhs_fixtures(tmp_path)
+    data = StatsData(
+        aircraft     = "da62",
+        sweep        = "sw",
+        tools_out    = tools_out,
+        outputs_root = outs,
+        out_dir      = tmp_path / "fig",
+    )
+    RunStats(data, enable_logging=False).plot_lhs()
+
+    out = tmp_path / "fig"
+    for name in ("lhs_corr_heatmap", "lhs_param_scatter",
+                 "lhs_convergence", "lhs_speed_ecdf"):
+        assert (out / f"{name}.pdf").is_file(), name
