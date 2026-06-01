@@ -184,6 +184,33 @@ def test_plot_sensitivity_writes_pdfs(tmp_path):
     assert (out / "anova_group_means.pdf").is_file()
 
 
+def test_plot_sensitivity_legacy_footer(tmp_path):
+    # The legacy producer writes "nan" string cells and a trailing ANOVA
+    # summary row whose eta_sq packs "F=.. p=..". plot_sensitivity must drop
+    # the footer and coerce the strings rather than render a phantom group.
+    from cl3o.utils.stats import StatsData, RunStats
+
+    sens = tmp_path / "tools" / "sensitivity"
+    sens.mkdir(parents=True)
+    (sens / "anova_results.csv").write_text(
+        "group,n_valid,mean_f,std_f,min_f,max_f,SS_within,eta_sq\n"
+        "Mesas,20,795.2,426.5,91.5,1092.3,3638310.3,0.101\n"
+        "Almas,0,nan,nan,nan,nan,nan,nan\n"
+        "ANOVA,100,991.6438,,,,7629585.4,F=5.4562 p=0.0005351\n"
+    )
+    data = StatsData(
+        aircraft  = "da62",
+        sweep     = "sw",
+        tools_out = tmp_path / "tools",
+        out_dir   = tmp_path / "fig",
+    )
+    RunStats(data, enable_logging=False).plot_sensitivity()
+
+    out = tmp_path / "fig"
+    assert (out / "anova_eta_sq.pdf").is_file()
+    assert (out / "anova_group_means.pdf").is_file()
+
+
 # ================================================================================
 # RunStats - best-design figures  (uses the heavy `runtime` fixture)
 # ================================================================================

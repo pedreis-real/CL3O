@@ -72,9 +72,12 @@ class StatsData:
     rate_pattern  : str  = field(init=False)
 
     def __post_init__(self) -> None:
-        self.aircraft = self.aircraft.lower()
+        self.aircraft     = self.aircraft.lower()
+        self.tools_out    = Path(self.tools_out)
+        self.outputs_root = Path(self.outputs_root)
         if self.out_dir is None:
             self.out_dir = self.tools_out / "stats"
+        self.out_dir = Path(self.out_dir)
         self.lhs_results   = self.tools_out / self.sweep / "results.csv"
         self.anova_results = self.tools_out / "sensitivity" / "anova_results.csv"
         self.anova_summary = self.tools_out / "sensitivity" / "anova_summary.csv"
@@ -239,7 +242,7 @@ class RunStats:
         sns.set_theme(context="paper", style="whitegrid")
 
     # ---------------------------------------------------------------- helpers
-    def _save(self, fig, name: str) -> None:
+    def _save(self, fig: plt.Figure, name: str) -> None:
         '''Save and close a figure as <out_dir>/<name>.<fmt>.'''
         path = self.data.out_dir / f"{name}.{self.data.fmt}"
         fig.savefig(path, dpi=self.data.dpi, bbox_inches="tight")
@@ -288,8 +291,11 @@ class RunStats:
         fig, axes = plt.subplots(2, 2, figsize=(9, 7))
         flat = axes.ravel()
         for ax, par in zip(flat, params):
+            # One legend total (on the first panel) so the "colour = converged"
+            # caption is decodable without cluttering every subplot.
+            show_legend = hue is not None and ax is flat[0]
             sns.scatterplot(data=df, x=par, y="best_f_final", hue=hue,
-                            palette="Set1", ax=ax, legend=False)
+                            palette="Set1", ax=ax, legend=show_legend)
             x = df[par].to_numpy(float)
             y = df["best_f_final"].to_numpy(float)
             if np.ptp(x) > 0:
@@ -357,6 +363,14 @@ class RunStats:
             )
             return
         df, summary = StatsHelper.load_anova(p, self.data.anova_summary)
+        # The legacy producer appends a trailing "ANOVA" summary row (with a
+        # packed "F=.. p=.." eta_sq string and "nan" cells). Drop it and coerce
+        # the numeric columns so it never renders as a phantom structural group;
+        # this is a no-op for the clean variant-A schema.
+        df = df[df["group"].astype(str).str.upper() != "ANOVA"].copy()
+        for col in ("eta_sq", "mean_f", "std_f"):
+            if col in df.columns:
+                df[col] = pd.to_numeric(df[col], errors="coerce")
         self._anova_eta_sq(df, summary)
         self._anova_group_means(df)
 
@@ -404,7 +418,7 @@ class RunStats:
         self._design_panel_stress(rt)
         self._design_forces(rt)
 
-    def _design_mass(self, rt) -> None:
+    def _design_mass(self, rt: object) -> None:
         sco     = rt.score
         panels  = float(np.nansum(np.asarray(getattr(sco, "panels", []), float)))
         flanges = float(np.nansum(np.asarray(getattr(sco, "flanges", []), float)))
@@ -422,7 +436,7 @@ class RunStats:
         fig.tight_layout()
         self._save(fig, "design_mass")
 
-    def _design_margins(self, rt) -> None:
+    def _design_margins(self, rt: object) -> None:
         tsw, dsp = rt.tsw, rt.displ
         tsw_ms = np.concatenate([
             np.asarray(getattr(tsw, "MS_panels", []), float).ravel(),
@@ -454,7 +468,7 @@ class RunStats:
         fig.tight_layout()
         self._save(fig, "design_margins")
 
-    def _design_panel_stress(self, rt) -> None:
+    def _design_panel_stress(self, rt: object) -> None:
         tauA = np.asarray(rt.stress.tauA, float)
         tauB = np.asarray(rt.stress.tauB, float)
         lc   = 0
@@ -480,7 +494,7 @@ class RunStats:
         fig.tight_layout()
         self._save(fig, "design_panel_stress")
 
-    def _design_forces(self, rt) -> None:
+    def _design_forces(self, rt: object) -> None:
         fr  = rt.fea_rts
         Qsc = np.asarray(fr.Q_sc, float)
         Qc  = np.asarray(fr.Q_c,  float)
