@@ -236,4 +236,24 @@ export interface SearchSpace {
   };
 }
 
+export interface AnovaGroup {
+  group:  string;
+  eta_sq: number;
+  mean_f: number;
+  std_f:  number;
+  min_f:  number;
+  max_f:  number;
+}
+
+export interface SensitivityData {
+  available: boolean;
+  groups?:   AnovaGroup[];
+  summary?: {
+    F_stat:     number;
+    p_value:    number;
+    df_between: number;
+    df_within:  number;
+  } | null;
+}
+
 export type ViewKind = "geometry" | "section" | "mesh" | "stress" | "misc";

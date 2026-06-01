@@ -1,6 +1,6 @@
 import type {
-  Forces, Info, Manifest, Mesh, Planform, RunSummary, Scene, SearchSpace,
-  Section, Stress, StressScene,
+  Forces, Info, Manifest, Mesh, Planform, RunSummary, Scene,
+  SearchSpace, Section, SensitivityData, Stress, StressScene,
 } from "../types";
 
 // All requests go to /api (proxied to the FastAPI backend by Vite in dev).
@@ -31,4 +31,5 @@ export const api = {
   stress3d: (run: string, k: number, lc = 0, end = "avg") =>
     get<StressScene>(`/runs/${run}/gen/${k}/stress3d?lc=${lc}&end=${end}`),
   search: (run: string) => get<SearchSpace>(`/runs/${run}/search`),
+  sensitivity: () => get<SensitivityData>("/sensitivity"),
 };
