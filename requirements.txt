@@ -1,0 +1,9 @@
+# CL3O dependencies are declared in pyproject.toml.
+# Install the package (editable) with the UI extra:
+#
+#   pip install -e .[ui]
+#
+# Core only:        pip install -e .
+# With desktop app: pip install -e .[ui,desktop]
+# With test tools:  pip install -e .[dev]
+-e .[ui]

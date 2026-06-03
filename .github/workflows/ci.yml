@@ -1,0 +1,88 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+env:
+  MPLBACKEND: Agg
+
+jobs:
+  # ── Fast unit tests – both Python versions, every push ──────────────────────
+  unit-tests:
+    name: Unit tests (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: true
+      matrix:
+        python-version: ["3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install package (core + dev)
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Run unit tests
+        run: pytest -m "not slow and not integration" -q --tb=short
+
+  # ── Slow / integration tests – Python 3.11 only, master pushes ──────────────
+  integration-tests:
+    name: Integration tests (Python 3.11)
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install package (core + ui + dev)
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[ui,dev]"
+
+      - name: Stress-analysis frame-consistency gate
+        run: >
+          pytest
+          tests/test_geom_properties.py::test_geom_local_boom_frame_diagonalizes
+          tests/test_geom_properties.py::test_geom_local_stress_constants
+          tests/test_stress_recovery.py::test_local_vs_global_normal_stress
+          -q --tb=short
+
+      - name: Run slow + integration tests
+        run: pytest -m "slow or integration" -q --tb=short
+
+      - name: Runtime-pipeline validation gate
+        run: python -m tests.validation.validate_runtime_pipeline
+
+  # ── Frontend build ───────────────────────────────────────────────────────────
+  frontend:
+    name: Frontend build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: src/cl3o/ui/frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: src/cl3o/ui/frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build SPA
+        run: npm run build
