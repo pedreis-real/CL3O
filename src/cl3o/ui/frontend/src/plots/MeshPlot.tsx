@@ -3,8 +3,8 @@ import type { Data } from "plotly.js";
 import { useStore } from "../state/store";
 import { api } from "../api/client";
 import type { Forces, Scene } from "../types";
-import Plot, { baseLayout, config, meshTrace, scene3d } from "./Plot";
-import { useSnapshotButton } from "../hooks/useSnapshotButton";
+import Plot, { baseLayout, meshTrace, scene3d } from "./Plot";
+import { useSnapshotConfig } from "../hooks/useSnapshotButton";
 import type { Mesh3D } from "../types";
 import { FEMAP_CMAP } from "./colors";
 
@@ -43,6 +43,7 @@ export function MeshPlot() {
   const [scene, setScene] = useState<Scene | null>(null);
   const [forces, setForces] = useState<Forces | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const snapConfig = useSnapshotConfig("mesh");
 
   useEffect(() => {
     if (!runId) return;
@@ -61,9 +62,6 @@ export function MeshPlot() {
   }, [runId, gen, field, loadcase, scale, setNLoadcases]);
 
   if (err) return <div className="plot-error">{err}</div>;
-
-  const snapBtn = useSnapshotButton(runId, gen, "mesh");
-  const snapConfig = { ...config, modeBarButtonsToAdd: [snapBtn] as any[] };
 
   // -------- Displacement: deformed surface colormapped by component --------
   if (field === "disp") {

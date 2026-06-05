@@ -14,7 +14,6 @@ bounds).
 
 # ================ PyLib imports ================
 from pathlib import Path
-from typing import Optional
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -79,8 +78,8 @@ class PlotCL3OHelper:
 
 def plot_convergence(
     history        : HistoryData,
-    title          : Optional[str]        = None,
-    save_path      : Optional[str | Path] = None,
+    title          : str | None        = None,
+    save_path      : str | Path | None = None,
     show           : bool                 = True,
     enable_logging : bool                 = True,
 ) -> plt.Figure:
@@ -183,8 +182,8 @@ def plot_convergence(
 def plot_design_trajectories(
     history        : HistoryData,
     opt_data       : OptData,
-    title          : Optional[str]        = None,
-    save_path      : Optional[str | Path] = None,
+    title          : str | None        = None,
+    save_path      : str | Path | None = None,
     show           : bool                 = True,
     enable_logging : bool                 = True,
 ) -> plt.Figure:

@@ -74,6 +74,84 @@ class AirfoilData:
 
 
 # ================================================================================
+# Internal Helpers - pure airfoil geometry
+# ================================================================================
+
+class AirfoilHelper:
+    '''
+    Stateless geometry helpers shared by the .dat parser and the NACA
+    analytic generators: surface splitting, the NACA 4-digit thickness
+    distribution, and camber-normal projection.
+    '''
+    def __init__(self):
+        pass
+
+
+    @staticmethod
+    def split_upper_lower(
+        x: np.ndarray,
+        y: np.ndarray,
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        '''
+        Splits airfoil coordinates into upper and lower surfaces.
+
+        Identifies, first, if x-values are sorted from LE to TE or otherwise,
+        and then manipulates to go from LE to TE.
+        '''
+        le = int(np.argmin(x))
+        te = int(np.argmax(x))
+        if y[le+1] < 0:
+            x_u = x[:le + 1][::-1]
+            y_u = y[:le + 1][::-1]
+            x_l = x[le:]
+            y_l = y[le:]
+        else:
+            x_u = x[:te + 1]
+            y_u = y[:te + 1]
+            x_l = x[te:][::-1]
+            y_l = y[te:][::-1]
+        return (x_u, y_u, x_l, y_l)
+
+
+    @staticmethod
+    def naca_thickness(
+        x: np.ndarray,
+        t: float,
+    ) -> np.ndarray:
+        ''' NACA 4-digit symmetric thickness distribution. '''
+        return 5.0 * t * (
+            0.2969 * np.sqrt(x)
+            - 0.1260 * x
+            - 0.3516 * x**2
+            + 0.2843 * x**3
+            - 0.1015 * x**4
+        )
+
+
+    @staticmethod
+    def apply_camber_normal(
+        x    : np.ndarray,
+        y_c  : np.ndarray,
+        dy_c : np.ndarray,
+        yt   : np.ndarray,
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        '''
+        Projects thickness normal to the camber line.
+
+        Returns:
+            Tuple (x_upper, y_upper, x_lower, y_lower).
+        '''
+        theta = np.arctan(dy_c)
+        return (
+            x - yt * np.sin(theta),
+            y_c + yt * np.cos(theta),
+            x + yt * np.sin(theta),
+            y_c - yt * np.cos(theta),
+        )
+
+
+
+# ================================================================================
 # Public API - Manipulates and saves airfoil coordinates into database
 # ================================================================================
 
@@ -122,31 +200,6 @@ class Airfoil:
     # Private methods - inner calculation
     # ----------------------------------------
 
-    def _split_upper_lower(
-        self,
-        x: np.ndarray,
-        y: np.ndarray,
-    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-        '''
-        Splits airfoil coordinates into upper and lower surfaces.
-
-        Identifies, first, if x-values are sorted from LE to TE or otherwise,
-        and then manipulates to go from LE to TE.
-        '''
-        le = int(np.argmin(x))
-        te = int(np.argmax(x))
-        if y[le+1] < 0:
-            x_u = x[:le + 1][::-1]
-            y_u = y[:le + 1][::-1]
-            x_l = x[le:]
-            y_l = y[le:]
-        else:
-            x_u = x[:te + 1]
-            y_u = y[:te + 1]
-            x_l = x[te:][::-1]
-            y_l = y[te:][::-1]
-        return (x_u, y_u, x_l, y_l)
-    
     def _cosine_resample(
         self,
         x: np.ndarray,
@@ -164,41 +217,6 @@ class Airfoil:
         return (
             0.5 * (self.x_upper + self.x_lower),
             0.5 * (self.y_upper + self.y_lower)
-        )
-
-    def _naca_thickness(
-        self,
-        x: np.ndarray,
-        t: float,
-    ) -> np.ndarray:
-        ''' NACA 4-digit symmetric thickness distribution. '''
-        return 5.0 * t * (
-            0.2969 * np.sqrt(x)
-            - 0.1260 * x
-            - 0.3516 * x**2
-            + 0.2843 * x**3
-            - 0.1015 * x**4
-        )
-
-    def _apply_camber_normal(
-        self,
-        x    : np.ndarray,
-        y_c  : np.ndarray,
-        dy_c : np.ndarray,
-        yt   : np.ndarray,
-    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-        '''
-        Projects thickness normal to the camber line.
-
-        Returns:
-            Tuple (x_upper, y_upper, x_lower, y_lower).
-        '''
-        theta = np.arctan(dy_c)
-        return (
-            x - yt * np.sin(theta),
-            y_c + yt * np.cos(theta),
-            x + yt * np.sin(theta),
-            y_c - yt * np.cos(theta),
         )
 
 
@@ -224,7 +242,7 @@ class Airfoil:
         x_raw, y_raw = raw["x"], raw["y"]
 
         self.logger.info("Spliting upper and lower surfaces")
-        x_u, y_u, x_l, y_l = self._split_upper_lower(x_raw, y_raw)
+        x_u, y_u, x_l, y_l = AirfoilHelper.split_upper_lower(x_raw, y_raw)
 
         self.logger.info(
             f"Applying cosine redistribution: {self.n_points} pts/surface"
@@ -328,8 +346,8 @@ class Airfoil:
                 (2.0*m / (1.0 - p)**2) * (p - x),
             )
 
-        yt = self._naca_thickness(x, t)
-        x_u, y_u, x_l, y_l = self._apply_camber_normal(
+        yt = AirfoilHelper.naca_thickness(x, t)
+        x_u, y_u, x_l, y_l = AirfoilHelper.apply_camber_normal(
             x, y_c, dy_c, yt
         )
         return self._build_NACA_airfoil_data(x_u, y_u, x_l, y_l)
@@ -404,8 +422,8 @@ class Airfoil:
             np.full_like(x, -k1 * m**3 / 6.0),
         )
 
-        yt = self._naca_thickness(x, t)
-        x_u, y_u, x_l, y_l = self._apply_camber_normal(
+        yt = AirfoilHelper.naca_thickness(x, t)
+        x_u, y_u, x_l, y_l = AirfoilHelper.apply_camber_normal(
             x, y_c, dy_c, yt
         )
         return self._build_NACA_airfoil_data(x_u, y_u, x_l, y_l)
@@ -466,7 +484,7 @@ class Airfoil:
         )
         y_c[0] = y_c[-1] = 0.0
 
-        yt = self._naca_thickness(x, t)
+        yt = AirfoilHelper.naca_thickness(x, t)
 
         # Vertical stacking avoids x_u < 0 near the cusped LE
         x_u = x.copy()

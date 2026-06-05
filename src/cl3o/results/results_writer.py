@@ -14,7 +14,6 @@ best design vector (both raw-best and best-feasible).
 # ================ PyLib imports ================
 from pathlib import Path
 from dataclasses import dataclass, field
-from typing import Optional
 
 import numpy as np
 
@@ -147,7 +146,7 @@ class ResultsWriter:
         opt_name       : str,
         opt_data       : OptData,
         history        : HistoryData,
-        out_dir        : Optional[str | Path] = None,
+        out_dir        : str | Path | None = None,
         enable_logging : bool                 = True,
     ) -> None:
         '''
@@ -199,7 +198,7 @@ class ResultsWriter:
 
     def write(
         self,
-        filepath : Optional[str | Path] = None,
+        filepath : str | Path | None = None,
     ) -> Path:
         '''
         Serialize the bundled ResultsData to JSON.

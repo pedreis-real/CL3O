@@ -14,7 +14,6 @@ scalar fitness for each design vector X:
 
 # ================ PyLib imports ================
 import copy
-from pathlib import Path
 from dataclasses import dataclass, field
 from typing import Callable
 
@@ -332,109 +331,136 @@ class BuildEvaluator:
         Returns:
             Callable eval_(X) -> float.
         '''
-        log = self.pipeline_logging
         expected_X_size = 11 * self.n_cpts + 3
 
         def eval_(X: np.ndarray) -> float:
-
-            # Step 1: Validate design vector
-            FobjectiveHelper.validate_design_vector(X, expected_X_size)
-
-            # Step 2: Decode X into OptVars
-            opt_vars = self._decode_design_vector(X=X)
-            self.rt.optvars = opt_vars
-
-            # Step 3: Cross-section geometry
-            sec = SectionBuilder(
-                opt_vars       = self.rt.optvars,
-                static_data    = self.st,
-                enable_logging = log,
-                verbose        = log,
-            )
-            self.rt.sections = sec.data
-
-            # Step 4: Mesh construction
-            mesh = MeshBuilder(
-                data           = (self.st.fem_setup, self.rt.sections),
-                use_offset     = self.use_offset,
-                enable_logging = log,
-                verbose        = log,
-            )
-            self.rt.mesh = mesh.data
-
-            # Step 5: Linear static analysis ({F} = [K]{d})
-            static_analysis = LinearStaticSolver(
-                mesh           = self.rt.mesh,
-                loads          = self.st.fem_setup.loads,
-                enable_logging = log,
-                verbose        = log,
-            )
-            self.rt.fea_rts = static_analysis.results
-
-            # Step 6: Stress recovery
-            stress = StressRecovery(
-                sections       = self.rt.sections,
-                element_idx    = self.rt.mesh.conn[:, :2],
-                fea_results    = self.rt.fea_rts,
-                use_local_in_sr = self.use_local_in_sr,
-                enable_logging = log,
-                verbose        = log,
-            )
-            self.rt.stress = stress.data
-
-            # Step 7: Tsai-Wu failure assessment
-            tsw = TsaiWuFailure(
-                data           = (self.st, self.rt),
-                enable_logging = log,
-                verbose        = log,
-            )
-            self.rt.tsw = tsw.data
-
-            # Step 8: Displacement margins of safety
-            disp = DisplacementMargins(
-                mesh           = self.rt.mesh,
-                dmatrix        = self.rt.fea_rts.dmatrix,
-                b              = self.st.wing_db.b,
-                enable_logging = log,
-                verbose        = log,
-            )
-            self.rt.displ = disp.data
-
-            # Step 9: Penalty
-            penalty = Penalty(
-                data           = (self.rt.tsw, self.rt.displ),
-                enable_logging = log,
-                verbose        = log,
-            )
-            self.rt.penalty = penalty.data
-
-            # Step 10a: Structural mass m(X)
-            score = StructuralMass(
-                sections       = self.rt.sections,
-                element_idx    = self.rt.mesh.conn[:, :2],
-                laminate_db    = self.st.laminate_db,
-                enable_logging = log,
-                verbose        = log,
-            )
-            self.rt.score = score.data
-
-            # Step 10b: Scalar fitness z(X) = w_m * m(X) + P(X)
-            fitness = TotalScore(
-                mass_data      = score.data,
-                penalty_data   = penalty.data,
-                enable_logging = log,
-                verbose        = log,
-            )
-            self.rt.fitness = fitness.data
-
-            total = float(self.rt.fitness.total)
-            if total < self._best_f:
-                self._best_f  = total
-                self.best_rt  = copy.copy(self.rt)
-
-            return total
+            FobjectiveHelper.validate_design_vector(X, expected_X_size)  # 1
+            self._step_decode(X)                                         # 2
+            self._step_cross_section()                                   # 3
+            self._step_mesh()                                            # 4
+            self._step_static_solve()                                    # 5
+            self._step_stress_recovery()                                 # 6
+            self._step_failure()                                         # 7
+            self._step_displacement()                                    # 8
+            self._step_penalty()                                         # 9
+            self._step_mass_and_fitness()                                # 10
+            return self._record_best()
 
         return eval_
+
+    # ------------------------------------------------
+    # Private methods - individual pipeline steps
+    # ------------------------------------------------
+
+    def _step_decode(self, X: np.ndarray) -> None:
+        '''Step 2: decode the flat design vector X into OptVars.'''
+        self.rt.optvars = self._decode_design_vector(X=X)
+
+    def _step_cross_section(self) -> None:
+        '''Step 3: build the cross-section geometry at every station.'''
+        log = self.pipeline_logging
+        sec = SectionBuilder(
+            opt_vars       = self.rt.optvars,
+            static_data    = self.st,
+            enable_logging = log,
+            verbose        = log,
+        )
+        self.rt.sections = sec.data
+
+    def _step_mesh(self) -> None:
+        '''Step 4: assemble the global mesh and stiffness matrix.'''
+        log = self.pipeline_logging
+        mesh = MeshBuilder(
+            data           = (self.st.fem_setup, self.rt.sections),
+            use_offset     = self.use_offset,
+            enable_logging = log,
+            verbose        = log,
+        )
+        self.rt.mesh = mesh.data
+
+    def _step_static_solve(self) -> None:
+        '''Step 5: solve the linear static analysis ({F} = [K]{d}).'''
+        log = self.pipeline_logging
+        static_analysis = LinearStaticSolver(
+            mesh           = self.rt.mesh,
+            loads          = self.st.fem_setup.loads,
+            enable_logging = log,
+            verbose        = log,
+        )
+        self.rt.fea_rts = static_analysis.results
+
+    def _step_stress_recovery(self) -> None:
+        '''Step 6: recover boom normal and panel/web shear stresses.'''
+        log = self.pipeline_logging
+        stress = StressRecovery(
+            sections        = self.rt.sections,
+            element_idx     = self.rt.mesh.conn[:, :2],
+            fea_results     = self.rt.fea_rts,
+            use_local_in_sr = self.use_local_in_sr,
+            enable_logging  = log,
+            verbose         = log,
+        )
+        self.rt.stress = stress.data
+
+    def _step_failure(self) -> None:
+        '''Step 7: run the Tsai-Wu failure assessment.'''
+        log = self.pipeline_logging
+        tsw = TsaiWuFailure(
+            data           = (self.st, self.rt),
+            enable_logging = log,
+            verbose        = log,
+        )
+        self.rt.tsw = tsw.data
+
+    def _step_displacement(self) -> None:
+        '''Step 8: compute displacement margins of safety.'''
+        log = self.pipeline_logging
+        disp = DisplacementMargins(
+            mesh           = self.rt.mesh,
+            dmatrix        = self.rt.fea_rts.dmatrix,
+            b              = self.st.wing_db.b,
+            enable_logging = log,
+            verbose        = log,
+        )
+        self.rt.displ = disp.data
+
+    def _step_penalty(self) -> None:
+        '''Step 9: evaluate the penalty term P(X).'''
+        log = self.pipeline_logging
+        penalty = Penalty(
+            data           = (self.rt.tsw, self.rt.displ),
+            enable_logging = log,
+            verbose        = log,
+        )
+        self.rt.penalty = penalty.data
+
+    def _step_mass_and_fitness(self) -> None:
+        '''Step 10: structural mass m(X) and scalar fitness z(X).'''
+        log = self.pipeline_logging
+        score = StructuralMass(
+            sections       = self.rt.sections,
+            element_idx    = self.rt.mesh.conn[:, :2],
+            laminate_db    = self.st.laminate_db,
+            enable_logging = log,
+            verbose        = log,
+        )
+        self.rt.score = score.data
+
+        fitness = TotalScore(
+            mass_data      = score.data,
+            penalty_data   = self.rt.penalty,
+            enable_logging = log,
+            verbose        = log,
+        )
+        self.rt.fitness = fitness.data
+
+    def _record_best(self) -> float:
+        '''Return the scalar fitness z(X), snapshotting the best candidate.'''
+        total = float(self.rt.fitness.total)
+        if total < self._best_f:
+            self._best_f = total
+            self.best_rt = copy.copy(self.rt)
+        return total
 
 
 # ================================================================================

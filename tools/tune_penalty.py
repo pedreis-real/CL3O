@@ -50,6 +50,7 @@ from cl3o.Constants import PENALTY_VARS, DE_HYPERPAR
 # Utilities
 from cl3o.paths import DATA_DIR
 from cl3o.utils.oppoints import OppData
+from cl3o.utils.database_utils import discover_laminates
 
 # Geometry
 from cl3o.geometry.wing    import WingData
@@ -92,10 +93,7 @@ _NV         = PENALTY_VARS["nv_test"]
 def _build_specs() -> list:
     '''Return the resolved DatabaseSpec list for the DA62 configuration.'''
     mat_dir = DATA_DIR / "materials"
-    materials = sorted(
-        f.stem.removesuffix("_LaminateData")
-        for f in mat_dir.glob("MAT_*_LaminateData.json")
-    )
+    materials = discover_laminates(mat_dir)
     specs: list = []
     specs.append(DatabaseSpec(WingData,    DATA_DIR / "wings",    _AIRCRAFT.lower()))
     specs.append(DatabaseSpec(AirfoilData, DATA_DIR / "airfoils", "wortmannfx63137"))

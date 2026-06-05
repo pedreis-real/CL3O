@@ -20,6 +20,28 @@ matplotlib.use("Agg")
 import pandas as pd
 import pytest
 
+# ----------------------------------------------------------------------------
+# The statistics / visualisation code lives in the standalone tools/stats.py
+# script (intentionally not part of the installed cl3o package). Load it by
+# file path and expose it under the module path the tests import from. The
+# analysis stack (seaborn) is an optional extra, so skip the whole module when
+# it is unavailable.
+# ----------------------------------------------------------------------------
+import sys
+import importlib.util
+
+pytest.importorskip("seaborn", reason="stats tools require the [analysis] extra")
+
+_STATS_PATH = Path(__file__).resolve().parents[1] / "tools" / "stats.py"
+_spec = importlib.util.spec_from_file_location("cl3o.utils.stats", _STATS_PATH)
+_stats_mod = importlib.util.module_from_spec(_spec)
+sys.modules["cl3o.utils.stats"] = _stats_mod
+_spec.loader.exec_module(_stats_mod)
+
+# The plotting tests assert the figures tools/stats.py actually produces today:
+# the real figure names and its <out_dir>/<RUN_NAME>/ save layout (RUN_NAME is a
+# module-level constant in tools/stats.py, referenced here as _stats_mod.RUN_NAME).
+
 
 # ================================================================================
 # StatsData
@@ -147,9 +169,10 @@ def test_plot_lhs_writes_pdfs(tmp_path):
     )
     RunStats(data, enable_logging=False).plot_lhs()
 
-    out = tmp_path / "fig"
-    for name in ("lhs_corr_heatmap", "lhs_param_scatter",
-                 "lhs_convergence", "lhs_speed_ecdf"):
+    out = tmp_path / "fig" / _stats_mod.RUN_NAME
+    for name in ("lhs_param_scatter", "lhs_convergence",
+                 "lhs_convergence_expand", "lhs_convergence_expand_simple",
+                 "lhs_speed_ecdf"):
         assert (out / f"{name}.pdf").is_file(), name
 
 
@@ -179,7 +202,7 @@ def test_plot_sensitivity_writes_pdfs(tmp_path):
     )
     RunStats(data, enable_logging=False).plot_sensitivity()
 
-    out = tmp_path / "fig"
+    out = tmp_path / "fig" / _stats_mod.RUN_NAME
     assert (out / "anova_eta_sq.pdf").is_file()
     assert (out / "anova_group_means.pdf").is_file()
 
@@ -206,7 +229,7 @@ def test_plot_sensitivity_legacy_footer(tmp_path):
     )
     RunStats(data, enable_logging=False).plot_sensitivity()
 
-    out = tmp_path / "fig"
+    out = tmp_path / "fig" / _stats_mod.RUN_NAME
     assert (out / "anova_eta_sq.pdf").is_file()
     assert (out / "anova_group_means.pdf").is_file()
 
@@ -234,9 +257,8 @@ def test_plot_best_design_writes_pdfs(runtime, tmp_path):
     )
     RunStats(data, enable_logging=False).plot_best_design()
 
-    out = tmp_path / "fig"
-    for name in ("design_mass", "design_margins",
-                 "design_panel_stress", "design_forces"):
+    out = tmp_path / "fig" / _stats_mod.RUN_NAME
+    for name in ("design_margins_evolution", "design_margins_dist"):
         assert (out / f"{name}.pdf").is_file(), name
 
 
@@ -258,8 +280,10 @@ def test_run_all_partial_data(tmp_path):
     )
     RunStats(data, enable_logging=False).run_all()
 
-    out = tmp_path / "fig"
-    assert (out / "lhs_corr_heatmap.pdf").is_file()
-    # ANOVA + design figures skipped (no inputs), so they must be absent.
+    out = tmp_path / "fig" / _stats_mod.RUN_NAME
+    assert (out / "lhs_param_scatter.pdf").is_file()
+    assert (out / "lhs_speed_ecdf.pdf").is_file()
+    # ANOVA inputs absent and best-design is disabled in run_all, so those
+    # figures must not be produced.
     assert not (out / "anova_eta_sq.pdf").is_file()
-    assert not (out / "design_mass.pdf").is_file()
+    assert not (out / "design_margins_evolution.pdf").is_file()

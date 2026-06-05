@@ -18,7 +18,6 @@ following API:
 # ================ PyLib imports ================
 import logging
 from pathlib import Path
-from typing import Optional
 
 import json
 import numpy as np
@@ -359,7 +358,7 @@ def read_json(
 def write_json(
     obj: dict | type,
     filepath: str | Path,
-    indent: Optional[int] = 2
+    indent: int | None = 2
 ) -> None:
     '''
     Serializes a Python dictionary to a JSON file.
@@ -403,7 +402,7 @@ def write_json(
 
 def read_xlsx(
     filepath: str | Path,
-    sheet_name: Optional[str] = None,
+    sheet_name: str | None = None,
 ) -> dict:
     '''
     Reads spreadsheet and returns columnar arrays.

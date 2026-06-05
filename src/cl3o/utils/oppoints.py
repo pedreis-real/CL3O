@@ -12,9 +12,9 @@ named ./{aircraft_name}_OppData.json .
 
 # ================ PyLib imports ================
 from pathlib import Path
-from typing import Optional, Any
+from typing import Any
 
-from dataclasses import dataclass, asdict, field
+from dataclasses import dataclass, field
 
 import numpy as np
 
@@ -99,7 +99,7 @@ class OperationalPoints:
         aircraft_name: str,
         conditions: dict[str, Any],
         db_filepath: str | Path,
-        input_units: Optional[list[str]] = ["m/s", "m"],
+        input_units: list[str] | None = ["m/s", "m"],
         enable_logging: bool = True,    # always last entry
     ) -> None:
         '''

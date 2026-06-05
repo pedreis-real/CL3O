@@ -14,7 +14,6 @@ global XZ frame.
 
 # ================ PyLib imports ================
 from pathlib import Path
-from typing import Optional
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -87,9 +86,9 @@ class PlotSectionHelper:
 
 def plot_section(
     geom_data      : GeomData,
-    ax             : Optional[plt.Axes]   = None,
-    title          : Optional[str]        = None,
-    save_path      : Optional[str | Path] = None,
+    ax             : plt.Axes | None   = None,
+    title          : str | None        = None,
+    save_path      : str | Path | None = None,
     show           : bool                 = True,
     enable_logging : bool                 = True,
 ) -> plt.Figure:
@@ -212,8 +211,8 @@ def plot_section(
 def plot_all_sections(
     sec_data       : list[GeomData],
     n_cols         : int                  = 2,
-    title          : Optional[str]        = None,
-    save_path      : Optional[str | Path] = None,
+    title          : str | None        = None,
+    save_path      : str | Path | None = None,
     show           : bool                 = True,
     enable_logging : bool                 = True,
 ) -> plt.Figure:

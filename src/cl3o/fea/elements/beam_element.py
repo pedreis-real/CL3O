@@ -36,7 +36,6 @@ Pipeline:
 '''
 
 # ================ PyLib imports ================
-from pathlib import Path
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -47,7 +46,7 @@ import numpy as np
 # ================ Module imports ================
 
 # Constants
-from cl3o.Constants import TOL, SPHERICAL_HINGE
+from cl3o.Constants import SPHERICAL_HINGE
 
 # Utilities
 from cl3o.utils import io_utils as io

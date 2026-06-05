@@ -14,7 +14,6 @@ control point). All coordinates follow the CL3O convention: +Y span,
 
 # ================ PyLib imports ================
 from pathlib import Path
-from typing import Optional
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -63,8 +62,8 @@ class PlotWingHelper:
 
 def plot_wing_outline_2d(
     wing_data      : WingData,
-    title          : Optional[str]        = None,
-    save_path      : Optional[str | Path] = None,
+    title          : str | None        = None,
+    save_path      : str | Path | None = None,
     show           : bool                 = True,
     enable_logging : bool                 = True,
 ) -> plt.Figure:
@@ -129,9 +128,9 @@ def plot_wing_outline_2d(
 
 def plot_wing_outline_3d(
     wing_data      : WingData,
-    lerp_wing      : Optional[LerpWingData] = None,
-    title          : Optional[str]          = None,
-    save_path      : Optional[str | Path]   = None,
+    lerp_wing      : LerpWingData | None = None,
+    title          : str | None          = None,
+    save_path      : str | Path | None   = None,
     show           : bool                   = True,
     enable_logging : bool                   = True,
 ) -> plt.Figure:

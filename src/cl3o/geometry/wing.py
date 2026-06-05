@@ -14,7 +14,7 @@ Saves into a JSON file named ./{aircraft_name}_WingData.json .
 from pathlib import Path
 from typing import Any
 
-from dataclasses import dataclass, asdict, field
+from dataclasses import dataclass, field
 
 import numpy as np
 

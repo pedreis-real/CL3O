@@ -80,6 +80,7 @@ from cl3o.geometry.wing      import WingData, LerpWingData
 from cl3o.geometry.airfoil   import AirfoilData
 from cl3o.materials.laminate import LaminateData, PlyData
 from cl3o.utils.oppoints     import OppData
+from cl3o.utils.database_utils import discover_laminates
 from cl3o.fea.loads.load_mapper import ExLoadsData, InLoadsData
 from cl3o.fea.pre.fem_setup  import FemPreprocessData
 
@@ -143,10 +144,7 @@ class _Reporter:
 def _discover_materials() -> list[str]:
     '''Discover the curated laminate catalogue exactly as main.py does:
     glob MAT_*_LaminateData.json (skips legacy MAT{int} test laminates).'''
-    return sorted(
-        f.stem.removesuffix("_LaminateData")
-        for f in _DFLT_MAT_DIR.glob("MAT_*_LaminateData.json")
-    )
+    return discover_laminates(_DFLT_MAT_DIR)
 
 
 def _build_db_specs() -> list[DatabaseSpec]:
@@ -302,8 +300,15 @@ def scenario_setup_opt(rep: _Reporter, runner: RunCLEO) -> None:
         bool(np.all(opt.X0 >= opt.lo) and np.all(opt.X0 <= opt.hi)),
     )
 
-    # Layup tail of the bounds must address a valid MAT* index.
+    # Layup tail of the bounds must address a valid MAT* index. The layup
+    # index ranges are split per group (skin/web/flange); the tail floor is
+    # the smallest lower bound across those groups.
     n_mats = len(runner.static.laminate_db)
+    layup_lo_floor = min(
+        OPT_LIMS["layup_skin"][0],
+        OPT_LIMS["layup_web"][0],
+        OPT_LIMS["layup_flange"][0],
+    )
     tail_lo = opt.lo[-8 * n_cpts:]
     tail_hi = opt.hi[-8 * n_cpts:]
     rep.expect(
@@ -312,8 +317,9 @@ def scenario_setup_opt(rep: _Reporter, runner: RunCLEO) -> None:
         f"max(tail_hi)={float(np.max(tail_hi))}, n_mats={n_mats}",
     )
     rep.expect(
-        "layup tail lower bound >= 1",
-        float(np.min(tail_lo)) >= float(OPT_LIMS["layup"][0]),
+        "layup tail lower bound >= min layup index",
+        float(np.min(tail_lo)) >= float(layup_lo_floor),
+        f"min(tail_lo)={float(np.min(tail_lo))}, floor={layup_lo_floor}",
     )
 
     # _build_de_bounds is a pure static method; exercise it standalone too.

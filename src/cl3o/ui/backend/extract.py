@@ -57,6 +57,39 @@ def search_space(distinct_snapshots: list, manifest: dict) -> dict:
 
     Returns dict ready for serialize.to_jsonable.
     '''
+    Xs, f, gen, feas = _collect_design_vectors(distinct_snapshots)
+
+    if len(Xs) < 2:
+        return {
+            "x": [], "y": [], "z": [], "f": f, "gen": gen, "feasible": feas,
+            "explained_variance": [0.0, 0.0, 0.0], "n_distinct": len(Xs),
+            "metrics": _global_metrics(manifest),
+        }
+
+    proj = _pca_trajectory(Xs)
+    return {
+        "x": proj["x"],
+        "y": proj["y"],
+        "z": proj["z"],
+        "f": f,
+        "gen": gen,
+        "feasible": feas,
+        "cum_path": proj["cum_path"],
+        "explained_variance": proj["explained_variance"],
+        "n_distinct": len(Xs),
+        "metrics": _global_metrics(manifest),
+    }
+
+
+def _collect_design_vectors(
+    distinct_snapshots: list,
+) -> tuple[list[np.ndarray], list[float], list[int], list[bool]]:
+    '''Stack each distinct individual's flat design vector + record metadata.
+
+    Skips snapshots without an OptVars or whose encoding fails, keeping the
+    returned lists index-aligned (design vector, best_f, first-seen gen,
+    feasibility).
+    '''
     from cl3o.optimization.fobjective import BuildEvaluator
 
     Xs: list[np.ndarray] = []
@@ -74,18 +107,22 @@ def search_space(distinct_snapshots: list, manifest: dict) -> dict:
         f.append(_f(rec.get("best_f")) or float("nan"))
         gen.append(int(rec.get("first_seen_gen", rec.get("k", 0))))
         feas.append(bool(rec.get("is_feasible", False)))
+    return Xs, f, gen, feas
 
-    if len(Xs) < 2:
-        return {
-            "x": [], "y": [], "z": [], "f": f, "gen": gen, "feasible": feas,
-            "explained_variance": [0.0, 0.0, 0.0], "n_distinct": len(Xs),
-            "metrics": _global_metrics(manifest),
-        }
 
+def _pca_trajectory(Xs: list[np.ndarray]) -> dict:
+    '''Project the design-vector stack onto its first 3 principal components.
+
+    Centres the stack and runs a compact SVD (U.S gives the projected
+    coordinates), returning the per-individual x/y/z coordinates, the
+    cumulative L2 path length DE travelled, and the explained-variance
+    ratios of the first three components.
+    '''
+    n = len(Xs)
     X = np.vstack(Xs).astype(float)
     mu = X.mean(axis=0)
     Xc = X - mu
-    # Compact SVD for PCA. U·S gives the projected coordinates.
+    # Compact SVD for PCA. U.S gives the projected coordinates.
     U, S, _Vt = np.linalg.svd(Xc, full_matrices=False)
     n_pcs = min(3, U.shape[1])
     coords = U[:, :n_pcs] * S[:n_pcs]
@@ -98,15 +135,10 @@ def search_space(distinct_snapshots: list, manifest: dict) -> dict:
 
     return {
         "x": coords[:, 0].tolist(),
-        "y": coords[:, 1].tolist() if n_pcs > 1 else [0.0] * len(Xs),
-        "z": coords[:, 2].tolist() if n_pcs > 2 else [0.0] * len(Xs),
-        "f": f,
-        "gen": gen,
-        "feasible": feas,
+        "y": coords[:, 1].tolist() if n_pcs > 1 else [0.0] * n,
+        "z": coords[:, 2].tolist() if n_pcs > 2 else [0.0] * n,
         "cum_path": cum_path,
         "explained_variance": ev,
-        "n_distinct": len(Xs),
-        "metrics": _global_metrics(manifest),
     }
 
 

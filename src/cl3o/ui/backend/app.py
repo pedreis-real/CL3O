@@ -17,7 +17,7 @@ import csv
 from datetime import datetime
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -55,6 +55,40 @@ def _snapshot(run_id: str, k: int):
         raise HTTPException(status_code=404, detail=str(exc))
 
 
+def _wing_typed(run_id: str):
+    '''Typed WingData for the run, or 404 when no wing DB matches.'''
+    wing = repo.get_wing_data(run_id)
+    if wing is None:
+        raise HTTPException(status_code=404, detail="wing data not found")
+    return wing
+
+
+def _wing_raw(run_id: str):
+    '''Raw wing-DB dict for the run, or 404 when no wing DB matches.'''
+    wing = repo.get_wing(run_id)
+    if wing is None:
+        raise HTTPException(
+            status_code=404, detail="no wing database found in data/wings"
+        )
+    return wing
+
+
+_VALID_ENDS = ("A", "B", "avg")
+
+
+def valid_end(end: str = Query("avg")) -> str:
+    '''Validate the element-end selector shared by the stress routes.'''
+    if end not in _VALID_ENDS:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"[CL3O] Invalid 'end' value '{end}'. "
+                f"Expected one of {_VALID_ENDS}."
+            ),
+        )
+    return end
+
+
 # ------------------------------------------------------------------
 # Meta
 # ------------------------------------------------------------------
@@ -79,10 +113,7 @@ def manifest(run_id: str):
 
 @app.get("/api/runs/{run_id}/planform")
 def planform(run_id: str):
-    wing = repo.get_wing(run_id)
-    if wing is None:
-        raise HTTPException(status_code=404, detail="no wing database found in data/wings")
-    return _json(extract.planform(wing))
+    return _json(extract.planform(_wing_raw(run_id)))
 
 
 @app.get("/api/runs/{run_id}/search")
@@ -125,7 +156,7 @@ def stress(
     run_id: str,
     k: int,
     lc: int = Query(0),
-    end: str = Query("avg"),
+    end: str = Depends(valid_end),
 ):
     return _json(extract.stress(_snapshot(run_id, k), lc=lc, end=end))
 
@@ -136,21 +167,15 @@ def forces(run_id: str, k: int, lc: int = Query(0)):
 
 
 @app.get("/api/runs/{run_id}/gen/{k}/stress3d")
-def stress3d(run_id: str, k: int, lc: int = Query(0), end: str = Query("avg")):
+def stress3d(run_id: str, k: int, lc: int = Query(0), end: str = Depends(valid_end)):
     rt = _snapshot(run_id, k)
-    wing = repo.get_wing_data(run_id)
-    if wing is None:
-        raise HTTPException(status_code=404, detail="wing data not found")
-    return _json(surface.build_stress_surface(rt, wing, lc=lc, end=end))
+    return _json(surface.build_stress_surface(rt, _wing_typed(run_id), lc=lc, end=end))
 
 
 @app.get("/api/runs/{run_id}/gen/{k}/tsw3d")
-def tsw3d(run_id: str, k: int, lc: int = Query(0), end: str = Query("avg")):
+def tsw3d(run_id: str, k: int, lc: int = Query(0), end: str = Depends(valid_end)):
     rt = _snapshot(run_id, k)
-    wing = repo.get_wing_data(run_id)
-    if wing is None:
-        raise HTTPException(status_code=404, detail="wing data not found")
-    return _json(surface.build_tsw_surface(rt, wing, lc=lc, end=end))
+    return _json(surface.build_tsw_surface(rt, _wing_typed(run_id), lc=lc, end=end))
 
 
 @app.get("/api/runs/{run_id}/gen/{k}/geometry")
@@ -162,10 +187,10 @@ def geometry(
     scale: float = Query(1.0),
 ):
     rt = _snapshot(run_id, k)
-    wing = repo.get_wing_data(run_id)
+    wing = _wing_typed(run_id)
     afl = repo.get_airfoil(run_id)
-    if wing is None or afl is None:
-        raise HTTPException(status_code=404, detail="wing/airfoil data not found")
+    if afl is None:
+        raise HTTPException(status_code=404, detail="airfoil data not found")
     scene = surface.build_scene(rt, wing, afl, lc=lc, scale=scale, deform=deformed)
     scene["laminate_catalog"] = repo.get_laminate_catalog(run_id)
     return _json(scene)

@@ -18,7 +18,7 @@ CONDITIONS AND COMMIT TO /github.com/cwss.
 # ================ PyLib imports ================
 import warnings
 from pathlib import Path
-from typing import Optional, Any
+from typing import Any
 
 from dataclasses import dataclass
 
@@ -286,8 +286,8 @@ class LoadMapper:
         self,
         aircraft_name: str,
         db_filepath: str | Path,
-        conditions: Optional[list[str]] = None,
-        xflr5_files: Optional[list[str]] = None,
+        conditions: list[str] | None = None,
+        xflr5_files: list[str] | None = None,
         wing_side: str = Constants.WING_SIDE,
         enable_logging: bool = True,    # always last entry
     ) -> None:

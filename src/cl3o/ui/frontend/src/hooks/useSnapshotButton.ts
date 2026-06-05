@@ -1,6 +1,12 @@
 import Plotly from "plotly.js-dist-min";
+import { useStore } from "../state/store";
+import { config } from "../plots/Plot";
 
-export function useSnapshotButton(runId: string | null, gen: number, view: string) {
+// Build the "save snapshot" modebar button: downloads a PNG locally and
+// fires it to the server (POST /api/snaps). Not a React hook despite the
+// payload it carries — kept as a plain factory so it can be composed by
+// useSnapshotConfig below.
+export function snapshotButton(runId: string | null, gen: number, view: string) {
   return {
     name:  "save-snapshot",
     title: "Save snapshot (download + server)",
@@ -27,4 +33,13 @@ export function useSnapshotButton(runId: string | null, gen: number, view: strin
       }
     },
   };
+}
+
+// Shared Plotly config with the snapshot button wired in for `view`. Reads
+// the current run/generation from the store so callers pass only the view
+// label. Call at the top of a component (it subscribes to the store).
+export function useSnapshotConfig(view: string) {
+  const runId = useStore((s) => s.runId);
+  const gen   = useStore((s) => s.gen);
+  return { ...config, modeBarButtonsToAdd: [snapshotButton(runId, gen, view)] as any[] };
 }

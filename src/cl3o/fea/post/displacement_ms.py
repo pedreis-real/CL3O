@@ -20,7 +20,6 @@ DisplacementData so the user can see where wing fails (debug).
 '''
 
 # ================ PyLib imports ================
-from pathlib import Path
 from dataclasses import dataclass, field
 
 import numpy as np

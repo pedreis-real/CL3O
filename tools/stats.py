@@ -344,6 +344,7 @@ class RunStats:
     def _save(self, fig: plt.Figure, name: str) -> None:
         '''Save and close a figure as <out_dir>/<run_name>/<name>.<fmt>.'''
         path = self.data.out_dir / f"{RUN_NAME}" / f"{name}.{self.data.fmt}"
+        path.parent.mkdir(parents=True, exist_ok=True)
         fig.savefig(path, dpi=self.data.dpi, bbox_inches="tight")
         plt.close(fig)
         self.logger.info(f"  saved -> {path}")
@@ -504,7 +505,7 @@ class RunStats:
         ax.legend(fontsize=8)
         ax.grid(True, which="both", alpha=0.3)
         fig.tight_layout()
-        self._save(fig, "lhs_convergence.pdf")
+        self._save(fig, "lhs_convergence")
 
     def _lhs_convergence_expand(
         self, curves: dict[int, pd.DataFrame], df: pd.DataFrame

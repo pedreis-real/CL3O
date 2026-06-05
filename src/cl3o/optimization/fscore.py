@@ -21,7 +21,6 @@ kilograms for the DE objective function.
 '''
 
 # ================ PyLib imports ================
-from pathlib import Path
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -43,7 +42,7 @@ from cl3o.utils import io_utils as io
 from cl3o.geometry.section_builder import SectionData
 
 # Materials
-from cl3o.materials.laminate import LaminateData
+from cl3o.materials.laminate import LaminateData, MaterialHelper
 
 
 # ================================================================================
@@ -121,7 +120,7 @@ class StructuralMass:
 
     def _get_laminate(self, lam_idx: int) -> LaminateData:
         '''Retrieve LaminateData from the database by integer key.'''
-        return self.laminate_db[f"MAT{int(lam_idx) + 1}"]
+        return MaterialHelper.laminate_by_index(self.laminate_db, lam_idx)
 
     def _element_length(self, idx_a: int, idx_b: int) -> float:
         '''Euclidean length between two section centroids.'''

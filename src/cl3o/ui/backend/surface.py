@@ -37,6 +37,13 @@ from cl3o.geometry.wing import WingHelper
 # ================ Module constants ================
 _N_CHORD    = 81              # airfoil-loop points per rib (kept light for WebGL)
 
+# Per-panel shear-flux fields lofted onto the stress surface. Closed-cell
+# fluxes (qsX/qsZ/qT) scale with the shear-centre forces SX/SZ/T; open-cell
+# fluxes (qbX/qbZ) reuse the SX/SZ forces. Input attr names on GeomData map
+# to the output keys advertised to the frontend, index-aligned.
+_FLUX_KEYS = ("qsX_star", "qsZ_star", "qT_star", "qbX_star", "qbZ_star")
+_FLUX_OUT  = ("flux_qsX", "flux_qsZ", "flux_qT", "flux_qbX", "flux_qbZ")
+
 
 # ========================================================================
 # PRIVATE API - geometry primitives
@@ -150,6 +157,55 @@ def _apply_disp(
 # PUBLIC API - scene builder
 # ========================================================================
 
+def _build_skin_verts(
+    left: list, raw_ribs: list, n_c: int, y_left: np.ndarray,
+    dmat, LE: np.ndarray, lrow: list, lc: int, scale: float,
+) -> tuple[np.ndarray, dict]:
+    '''Place each station's outer-skin rib in the wing frame, optionally
+    displaced by the nodal solution.
+
+    Args:
+        left     : analyzed-wing station node indices (root -> tip).
+        raw_ribs : per-station (m_i, 2) skin polylines in section global-XZ.
+        n_c      : common chord-point count to resample every rib to.
+        y_left   : per-station span coordinate (mm).
+        dmat     : (6, n, nc) nodal displacement matrix, or None (no deform).
+        LE       : per-lerp-row leading-edge coords for the deform anchor.
+        lrow     : station -> lerp-row map for the displacement reference.
+        lc       : load-case index (already clamped).
+        scale    : deformation magnification.
+
+    Returns:
+        Tuple (verts, disp) - the (n_c, n_s, 3) vertex grid and a dict of
+        per-station displacement component arrays (zeros when dmat is None).
+    '''
+    n_s = len(left)
+    verts = np.zeros((n_c, n_s, 3))
+    comp_keys = ("u", "v", "w", "t", "rx", "ry", "rz", "r")
+    disp = {key: np.zeros(n_s) for key in comp_keys}
+    for s, node_i in enumerate(left):
+        raw = raw_ribs[s]
+        if raw.shape[0] != n_c:
+            idx = np.round(np.linspace(0, raw.shape[0] - 1, n_c)).astype(int)
+            raw = raw[idx]
+        y = y_left[s]
+        rib = np.column_stack([raw[:, 0], np.full(n_c, y), raw[:, 1]])
+        if dmat is not None:
+            r = lrow[s]
+            xle, zle = float(LE[r, 0]), float(LE[r, 2])
+            d = dmat[:, node_i, lc]
+            _deg = 180.0 / np.pi
+            disp["u"][s], disp["v"][s], disp["w"][s] = d[0], d[1], d[2]
+            disp["rx"][s] = float(d[3]) * _deg
+            disp["ry"][s] = float(d[4]) * _deg
+            disp["rz"][s] = float(d[5]) * _deg
+            disp["t"][s]  = float(np.linalg.norm(d[0:3]))
+            disp["r"][s]  = float(np.linalg.norm(d[3:6])) * _deg
+            rib = _apply_disp(rib, np.array([xle, y, zle]), d, scale)
+        verts[:, s] = rib
+    return verts, disp
+
+
 def build_scene(
     rt,
     wing,
@@ -213,32 +269,12 @@ def build_scene(
     else:
         dmat = None
 
-    verts = np.zeros((n_c, n_s, 3))
-    comp_keys = ("u", "v", "w", "t", "rx", "ry", "rz", "r")
-    disp = {key: np.zeros(n_s) for key in comp_keys}
-    for s, node_i in enumerate(left):
-        raw = raw_ribs[s]
-        if raw.shape[0] != n_c:
-            idx = np.round(np.linspace(0, raw.shape[0] - 1, n_c)).astype(int)
-            raw = raw[idx]
-        y = y_left[s]
-        rib = np.column_stack([raw[:, 0], np.full(n_c, y), raw[:, 1]])
-        if dmat is not None:
-            r = lrow[s]
-            xle, zle = float(LE[r, 0]), float(LE[r, 2])
-            d = dmat[:, node_i, lc]
-            _deg = 180.0 / np.pi
-            disp["u"][s], disp["v"][s], disp["w"][s] = d[0], d[1], d[2]
-            disp["rx"][s] = float(d[3]) * _deg
-            disp["ry"][s] = float(d[4]) * _deg
-            disp["rz"][s] = float(d[5]) * _deg
-            disp["t"][s]  = float(np.linalg.norm(d[0:3]))
-            disp["r"][s]  = float(np.linalg.norm(d[3:6])) * _deg
-            rib = _apply_disp(rib, np.array([xle, y, zle]), d, scale)
-        verts[:, s] = rib
+    verts, disp = _build_skin_verts(
+        left, raw_ribs, n_c, y_left, dmat, LE, lrow, lc, scale
+    )
 
     flat = verts.reshape(-1, 3, order="F")          # vertex idx = s*n_c + c
-    disp_payload = {key: disp[key] for key in comp_keys} if dmat is not None else None
+    disp_payload = dict(disp) if dmat is not None else None
 
     i, j, k = _grid_faces(n_c, n_s)
     surface = {"vertices": flat, "i": i, "j": j, "k": k, "n_chord": n_c, "n_span": n_s}
@@ -304,66 +340,42 @@ def build_scene(
 # PUBLIC API - stress surface
 # ========================================================================
 
-def build_stress_surface(rt, wing, lc: int = 0, end: str = "avg") -> dict:
+def _panel_force_ends(Qsc_arr: np.ndarray, e: int, lc_q: int) -> dict:
+    '''Per-element end-A / end-B applied forces that scale each flux field.
+
+    Rows of Q_sc: 0=N, 1=Sy, 2=Sz, 3=T, 4=My, 5=Mz (then +6 for end-B with
+    sign -1), following the _extract_internal_forces convention. Returns a
+    map keyed by the GeomData flux attr name to its (force_A, force_B) pair.
     '''
-    Build the analyzed-wing stress surface for one snapshot.
+    SX_a = float(Qsc_arr[1, e, lc_q]);   SX_b = -float(Qsc_arr[7, e, lc_q])
+    SZ_a = float(Qsc_arr[2, e, lc_q]);   SZ_b = -float(Qsc_arr[8, e, lc_q])
+    T_a  = float(Qsc_arr[3, e, lc_q]);   T_b  = -float(Qsc_arr[9, e, lc_q])
+    return {
+        "qsX_star": (SX_a, SX_b),
+        "qsZ_star": (SZ_a, SZ_b),
+        "qT_star":  (T_a,  T_b),
+        "qbX_star": (SX_a, SX_b),
+        "qbZ_star": (SZ_a, SZ_b),
+    }
 
-    Each T2 panel stores a full curved polyline (pts) following the actual
-    airfoil skin geometry. This function lofts that polyline between adjacent
-    spanwise stations (one per beam element), producing a ruled surface that
-    hugs the real wing contour. Each strip is coloured by the panel shear
-    stress tau. Boom rods coloured by normal stress sigma are included too.
 
-    Args:
-        rt   : RuntimeData snapshot.
-        wing : WingData (typed) for the run.
-        lc   : Load case index.
+def _loft_stress_panels(
+    sec, conn: np.ndarray, left_e: list, tau: np.ndarray,
+    lc: int, end: str, Qsc_arr: np.ndarray, lc_q: int,
+) -> tuple[list, list, list, list, list, dict]:
+    '''Loft each T2 panel polyline between adjacent stations into triangles.
+
+    For every analyzed-wing element the two end-station panel polylines are
+    resampled to a common length and lofted into a ruled strip that hugs the
+    real skin contour, coloured by the panel shear stress tau and carrying
+    the per-face shear-flux values (each influence coefficient scaled by the
+    actual applied force).
 
     Returns:
-        Dict with mesh3d-ready curved panel surface, per-face tau intensity,
-        and boom rods with per-node sigma values.
+        Tuple (verts, fi, fj, fk, fc, flux_cols) - vertex list, the three
+        mesh3d triangle-index lists, the per-face tau intensity, and the
+        dict of per-face flux columns keyed by _FLUX_OUT.
     '''
-    sec = rt.sections.sec_data
-    coord = np.asarray(rt.mesh.coord, float)
-    conn = np.asarray(rt.mesh.conn, int)[:, :2]
-    tauA_arr = np.asarray(rt.stress.tauA, float)        # (m, n_panels, nc)
-    tauB_arr = np.asarray(rt.stress.tauB, float)
-    sigA_arr = np.asarray(rt.stress.sigmaA, float)      # (m, n_booms, nc)
-    sigB_arr = np.asarray(rt.stress.sigmaB, float)
-    nc = tauA_arr.shape[2] if tauA_arr.ndim == 3 else 1
-    lc = max(0, min(int(lc), nc - 1))
-
-    # Select element-end value for stress: A-end, B-end, or average.
-    def _pick_stress(A: np.ndarray, B: np.ndarray) -> np.ndarray:
-        if end == "A":
-            return A
-        if end == "B":
-            return B
-        return 0.5 * (A + B)
-
-    tau     = _pick_stress(tauA_arr, tauB_arr)
-    sig_arr = _pick_stress(sigA_arr, sigB_arr)
-
-    # Analyzed-wing elements, root -> tip (|Y| ascending; side-agnostic).
-    mid_y = 0.5 * (coord[conn[:, 0], 1] + coord[conn[:, 1], 1])
-    left_e = list(range(conn.shape[0]))
-    left_e.sort(key=lambda e: abs(mid_y[e]))
-
-    # -------- T2 panel surfaces coloured by shear stress --------
-    # Each T2 panel stores a full curved polyline in the section global-XZ
-    # frame (pts[:, 0] = x, pts[:, 1] = z). Lofting these polylines between
-    # the two element end-stations produces a ruled surface that follows the
-    # actual airfoil skin geometry, not a flat quad between boom endpoints.
-    _FLUX_KEYS = ("qsX_star", "qsZ_star", "qT_star", "qbX_star", "qbZ_star")
-    _FLUX_OUT  = ("flux_qsX", "flux_qsZ", "flux_qT", "flux_qbX", "flux_qbZ")
-
-    # Pre-load local shear-centre internal forces (12, m, nc) so that each
-    # influence coefficient can be scaled by the actual applied force.
-    # Rows: 0=N, 1=Sy, 2=Sz, 3=T, 4=My, 5=Mz  (then +6 for end-B with sign=-1).
-    Qsc_arr = np.asarray(rt.fea_rts.Q_sc, float)
-    nc_q    = Qsc_arr.shape[2] if Qsc_arr.ndim == 3 else 1
-    lc_q    = max(0, min(int(lc), nc_q - 1))
-
     verts: list = []
     fi, fj, fk, fc = [], [], [], []
     flux_cols: dict[str, list] = {k: [] for k in _FLUX_OUT}
@@ -377,16 +389,7 @@ def build_stress_surface(rt, wing, lc: int = 0, end: str = "avg") -> dict:
 
         # Per-element internal forces: end-A (sign +1, off 0) and
         # end-B (sign -1, off 6) following _extract_internal_forces convention.
-        SX_a = float(Qsc_arr[1, e, lc_q]);   SX_b = -float(Qsc_arr[7, e, lc_q])
-        SZ_a = float(Qsc_arr[2, e, lc_q]);   SZ_b = -float(Qsc_arr[8, e, lc_q])
-        T_a  = float(Qsc_arr[3, e, lc_q]);   T_b  = -float(Qsc_arr[9, e, lc_q])
-        _force_ends: dict[str, tuple[float, float]] = {
-            "qsX_star": (SX_a, SX_b),
-            "qsZ_star": (SZ_a, SZ_b),
-            "qT_star":  (T_a,  T_b),
-            "qbX_star": (SX_a, SX_b),
-            "qbZ_star": (SZ_a, SZ_b),
-        }
+        _force_ends = _panel_force_ends(Qsc_arr, e, lc_q)
 
         for jp in range(min(n_panels_a, n_panels_b)):
             pts_a = np.asarray(sec[node_a].T2[jp]["pts"], float)  # (na, 2)
@@ -438,6 +441,70 @@ def build_stress_surface(rt, wing, lc: int = 0, end: str = "avg") -> dict:
                 fc += [t, t]
                 for fk_out in _FLUX_OUT:
                     flux_cols[fk_out] += [flux_face[fk_out], flux_face[fk_out]]
+
+    return verts, fi, fj, fk, fc, flux_cols
+
+
+def build_stress_surface(rt, wing, lc: int = 0, end: str = "avg") -> dict:
+    '''
+    Build the analyzed-wing stress surface for one snapshot.
+
+    Each T2 panel stores a full curved polyline (pts) following the actual
+    airfoil skin geometry. This function lofts that polyline between adjacent
+    spanwise stations (one per beam element), producing a ruled surface that
+    hugs the real wing contour. Each strip is coloured by the panel shear
+    stress tau. Boom rods coloured by normal stress sigma are included too.
+
+    Args:
+        rt   : RuntimeData snapshot.
+        wing : WingData (typed) for the run.
+        lc   : Load case index.
+
+    Returns:
+        Dict with mesh3d-ready curved panel surface, per-face tau intensity,
+        and boom rods with per-node sigma values.
+    '''
+    sec = rt.sections.sec_data
+    coord = np.asarray(rt.mesh.coord, float)
+    conn = np.asarray(rt.mesh.conn, int)[:, :2]
+    tauA_arr = np.asarray(rt.stress.tauA, float)        # (m, n_panels, nc)
+    tauB_arr = np.asarray(rt.stress.tauB, float)
+    sigA_arr = np.asarray(rt.stress.sigmaA, float)      # (m, n_booms, nc)
+    sigB_arr = np.asarray(rt.stress.sigmaB, float)
+    nc = tauA_arr.shape[2] if tauA_arr.ndim == 3 else 1
+    lc = max(0, min(int(lc), nc - 1))
+
+    # Select element-end value for stress: A-end, B-end, or average.
+    def _pick_stress(A: np.ndarray, B: np.ndarray) -> np.ndarray:
+        if end == "A":
+            return A
+        if end == "B":
+            return B
+        return 0.5 * (A + B)
+
+    tau     = _pick_stress(tauA_arr, tauB_arr)
+    sig_arr = _pick_stress(sigA_arr, sigB_arr)
+
+    # Analyzed-wing elements, root -> tip (|Y| ascending; side-agnostic).
+    mid_y = 0.5 * (coord[conn[:, 0], 1] + coord[conn[:, 1], 1])
+    left_e = list(range(conn.shape[0]))
+    left_e.sort(key=lambda e: abs(mid_y[e]))
+
+    # -------- T2 panel surfaces coloured by shear stress --------
+    # Each T2 panel stores a full curved polyline in the section global-XZ
+    # frame (pts[:, 0] = x, pts[:, 1] = z). Lofting these polylines between
+    # the two element end-stations produces a ruled surface that follows the
+    # actual airfoil skin geometry, not a flat quad between boom endpoints.
+    #
+    # Pre-load local shear-centre internal forces (12, m, nc) so that each
+    # influence coefficient can be scaled by the actual applied force.
+    Qsc_arr = np.asarray(rt.fea_rts.Q_sc, float)
+    nc_q    = Qsc_arr.shape[2] if Qsc_arr.ndim == 3 else 1
+    lc_q    = max(0, min(int(lc), nc_q - 1))
+
+    verts, fi, fj, fk, fc, flux_cols = _loft_stress_panels(
+        sec, conn, left_e, tau, lc, end, Qsc_arr, lc_q
+    )
 
     # Tau abs spans both A and B ends so the colorbar is stable across A/B/avg.
     tau_both = np.concatenate([tauA_arr[:, :, lc], tauB_arr[:, :, lc]])
@@ -669,7 +736,15 @@ def _spar_strip(rt, left, seg_label, dmat, LE, chord, twist, lrow, scale, lc) ->
     strip = np.zeros((2, n_s, 3))
     for s, node_i in enumerate(left):
         gd = sec[node_i]
-        seg = next(p for p in gd.T1 if p["label"] == seg_label)
+        seg = next((p for p in gd.T1 if p["label"] == seg_label), None)
+        if seg is None:
+            raise ValueError(
+                f"[CL3O] Spar web segment not found in section T1 topology.\n"
+                f"| Label   : {seg_label}\n"
+                f"| Station : {node_i}\n"
+                f"| Present : {[p.get('label') for p in gd.T1]}\n"
+                f"Check the seg_label argument or rebuild the section geometry."
+            )
         pts = np.asarray(seg["pts"], float)          # (2, 2): col 0 = X, col 1 = Z
         r = lrow[s]
         xle, zle, y = float(LE[r, 0]), float(LE[r, 2]), float(gd.C[1])

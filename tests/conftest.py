@@ -55,6 +55,7 @@ from cl3o.geometry.wing      import WingData
 from cl3o.geometry.airfoil   import AirfoilData
 from cl3o.materials.laminate import LaminateData
 from cl3o.utils.oppoints     import OppData
+from cl3o.utils.database_utils import discover_laminates
 from cl3o.fea.loads.load_mapper import ExLoadsData, InLoadsData
 
 
@@ -76,10 +77,7 @@ _TEST_DE_HYPERPAR = {
 
 def _discover_materials() -> list[str]:
     '''Glob the curated laminate catalogue, skipping legacy MAT{int}.'''
-    return sorted(
-        f.stem.removesuffix("_LaminateData")
-        for f in _DFLT_MAT_DIR.glob("MAT_*_LaminateData.json")
-    )
+    return discover_laminates(_DFLT_MAT_DIR)
 
 
 def _build_db_specs() -> list[DatabaseSpec]:

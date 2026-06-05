@@ -13,7 +13,6 @@ partition, and a deformed-vs-undeformed overlay of the nodal mesh.
 
 # ================ PyLib imports ================
 from pathlib import Path
-from typing import Optional
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -61,8 +60,8 @@ class PlotMSAHelper:
 
 def plot_K_sparsity(
     K              : np.ndarray,
-    title          : Optional[str]        = None,
-    save_path      : Optional[str | Path] = None,
+    title          : str | None        = None,
+    save_path      : str | Path | None = None,
     show           : bool                 = True,
     enable_logging : bool                 = True,
 ) -> plt.Figure:
@@ -117,8 +116,8 @@ def plot_K_sparsity(
 
 def plot_K_spectrum(
     fem_arrays     : MeshData,
-    title          : Optional[str]        = None,
-    save_path      : Optional[str | Path] = None,
+    title          : str | None        = None,
+    save_path      : str | Path | None = None,
     show           : bool                 = True,
     enable_logging : bool                 = True,
 ) -> plt.Figure:
@@ -201,8 +200,8 @@ def plot_deformed_mesh(
     conn           : np.ndarray,
     results        : FeaResults,
     scale          : float                = 1.0,
-    title          : Optional[str]        = None,
-    save_path      : Optional[str | Path] = None,
+    title          : str | None        = None,
+    save_path      : str | Path | None = None,
     show           : bool                 = True,
     enable_logging : bool                 = True,
 ) -> plt.Figure:

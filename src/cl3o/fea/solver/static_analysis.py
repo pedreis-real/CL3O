@@ -47,7 +47,6 @@ DOF ordering
 '''
 
 # ================ PyLib imports ================
-from pathlib import Path
 from typing import Any
 from dataclasses import dataclass, field
 
@@ -271,19 +270,19 @@ class LinearStaticSolver:
 
             # Step 6. Internal forces
             for j in range(m):
-                adress  = self.mesh.adr[:, j]
+                address  = self.mesh.adr[:, j]
                 T_sc    = self.mesh.T_sc[:, :, j]
                 T_sc_gl = self.mesh.T_sc_gl[:, :, j]
                 T_c    = self.mesh.T_c[:, :, j]
                 T_c_gl = self.mesh.T_c_gl[:, :, j]
 
-                Q_sc[:, j, i] = T_sc @ d_i[adress]
+                Q_sc[:, j, i] = T_sc @ d_i[address]
                 Q_sc[4, j, i] = -Q_sc[4, j, i]      # My = -My
-                Q_sc_gl[:, j, i] = T_sc_gl @ d_i[adress]
+                Q_sc_gl[:, j, i] = T_sc_gl @ d_i[address]
 
-                Q_c[:, j, i] = T_c @ d_i[adress]
+                Q_c[:, j, i] = T_c @ d_i[address]
                 Q_c[4, j, i] = -Q_c[4, j, i]        # My = -My
-                Q_c_gl[:, j, i] = T_c_gl @ d_i[adress]
+                Q_c_gl[:, j, i] = T_c_gl @ d_i[address]
 
             # Step 7. Reshape
             d_sc_gl[:, i] = d_i

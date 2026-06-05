@@ -39,7 +39,6 @@ Pipeline (executed by StructuralIdealization.run()):
 '''
 
 # ================ PyLib imports ================
-from pathlib import Path
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -51,7 +50,6 @@ import numpy as np
 
 # Constants
 from cl3o.Constants import (
-    TOL,
     BOOM_LBLS,
     N_BOOMS,
     FLANGE_BOOM_IDX,

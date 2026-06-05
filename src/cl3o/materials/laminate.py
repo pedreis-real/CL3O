@@ -255,6 +255,17 @@ class MaterialHelper:
                 )
     
     @staticmethod
+    def laminate_by_index(laminate_db: dict, lam_idx: int) -> LaminateData:
+        '''
+        Resolve a LaminateData from the database by its 0-based DE index.
+
+        The DE design vector stores each laminate as a 0-based index into
+        LAYUP_ORDER; the database keys them as 'MAT{index + 1}'. Centralising
+        the convention here keeps StructuralMass and TsaiWuFailure in sync.
+        '''
+        return laminate_db[f"MAT{int(lam_idx) + 1}"]
+
+    @staticmethod
     def get_ply_filename(name, thickness, angle) -> str:
         '''
         Persistent Ply name for single ply object.

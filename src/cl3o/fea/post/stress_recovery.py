@@ -33,7 +33,6 @@ Pipeline
 '''
 
 # ================ PyLib imports ================
-from pathlib import Path
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -55,6 +54,20 @@ from cl3o.geometry.section_builder import SectionData
 
 # FEA
 from cl3o.fea.solver.static_analysis import FeaResults
+
+
+# ================================================================================
+# Internal-force component indices
+# ================================================================================
+# A beam element carries a (12,) internal-force vector: components 0-5 for node A,
+# 6-11 for node B (selected by off = 0 / 6). Centroid-frame slots hold the normal
+# force and bending moments; shear-centre-frame slots hold the shear forces and
+# torque. The local and global frames order these components differently.
+_IDX_N = 0                            # normal force (centroid frame)
+_LOC_MX, _LOC_MZ = 4, 5               # local-frame bending moments
+_LOC_SX, _LOC_SZ, _LOC_T = 1, 2, 3    # local-frame shears + torque
+_GL_MX,  _GL_MZ  = 3, 5               # global-frame bending moments
+_GL_SX,  _GL_SZ,  _GL_T  = 0, 2, 4    # global-frame shears + torque
 
 
 # ================================================================================
@@ -190,21 +203,21 @@ class StressRecovery:
         off  = 6 if at_end else 0
         sign = -1.0 if at_end else 1.0
 
-        N  = sign * float(Qc_e [0 + off])       # Always from local frame
+        N  = sign * float(Qc_e [_IDX_N + off])       # Always from local frame
         if self.use_local_in_sr:
-            M1 = sign * float(Qc_e [4 + off])
-            M2 = sign * float(Qc_e [5 + off])
+            M1 = sign * float(Qc_e [_LOC_MX + off])
+            M2 = sign * float(Qc_e [_LOC_MZ + off])
 
-            S1 = sign * float(Qsc_e[1 + off])
-            S2 = sign * float(Qsc_e[2 + off])
-            T  = sign * float(Qsc_e[3 + off])
+            S1 = sign * float(Qsc_e[_LOC_SX + off])
+            S2 = sign * float(Qsc_e[_LOC_SZ + off])
+            T  = sign * float(Qsc_e[_LOC_T + off])
         else:
-            M1 = sign * float(Qc_gl_e [3 + off])
-            M2 = sign * float(Qc_gl_e [5 + off])
+            M1 = sign * float(Qc_gl_e [_GL_MX + off])
+            M2 = sign * float(Qc_gl_e [_GL_MZ + off])
             
-            S1 = sign * float(Qsc_gl_e[0 + off])
-            S2 = sign * float(Qsc_gl_e[2 + off])
-            T  = sign * float(Qsc_gl_e[4 + off])
+            S1 = sign * float(Qsc_gl_e[_GL_SX + off])
+            S2 = sign * float(Qsc_gl_e[_GL_SZ + off])
+            T  = sign * float(Qsc_gl_e[_GL_T + off])
 
         return (N, S1, S2, T, M1, M2)
     

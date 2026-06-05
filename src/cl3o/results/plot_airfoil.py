@@ -13,7 +13,6 @@ optionally writes the rendering to disk.
 
 # ================ PyLib imports ================
 from pathlib import Path
-from typing import Optional
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -37,8 +36,8 @@ _COLOR_CAMBER = "#04aafb"
 
 def plot_airfoil(
     afl_data       : AirfoilData,
-    title          : Optional[str]        = None,
-    save_path      : Optional[str | Path] = None,
+    title          : str | None        = None,
+    save_path      : str | Path | None = None,
     show           : bool                 = True,
     enable_logging : bool                 = True,
 ) -> plt.Figure:

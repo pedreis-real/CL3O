@@ -3,41 +3,12 @@ import type { Data } from "plotly.js";
 import { useStore } from "../state/store";
 import { api } from "../api/client";
 import type { Mesh3D, StressScene, TswScene } from "../types";
-import Plot, { baseLayout, config, meshTrace, scene3d } from "./Plot";
-import { useSnapshotButton } from "../hooks/useSnapshotButton";
-
-// FEMAP-style rainbow colormap for shear stress tau.
-const TAU_CMAP: [number, string][] = [
-  [0.000, "#0000c8"], [0.200, "#0096ff"], [0.375, "#00e6ff"],
-  [0.500, "#00c800"], [0.625, "#ffff00"], [0.800, "#ff6400"], [1.000, "#c80000"],
-];
-
-// Blue–white–red diverging colormap for normal stress sigma.
-const SIG_CMAP: [number, string][] = [
-  [0.000, "#1a6faf"], [0.250, "#6db0d8"], [0.500, "#f5f5f5"],
-  [0.750, "#e8795a"], [1.000, "#b2182b"],
-];
-
-// Purple–white–green diverging colormap for shear flux.
-const FLUX_CMAP: [number, string][] = [
-  [0.000, "#7b2d8b"], [0.250, "#c47fc4"], [0.500, "#f5f5f5"],
-  [0.750, "#6dbf8a"], [1.000, "#1a7a3c"],
-];
-
-// Green (safe) -> yellow (near failure) -> red (failed) for Tsai-Wu R.
-const TSW_CMAP: [number, string][] = [
-  [0.000, "#1a7a3c"], [0.350, "#6dbf8a"], [0.500, "#ffd166"],
-  [0.650, "#e8795a"], [1.000, "#b2182b"],
-];
-
-type FluxKey = "flux_qsX" | "flux_qsZ" | "flux_qT" | "flux_qbX" | "flux_qbZ";
-const FLUX_OPTIONS: { key: FluxKey; label: string }[] = [
-  { key: "flux_qsX", label: "q·S_X (total)" },
-  { key: "flux_qsZ", label: "q·S_Z (total)" },
-  { key: "flux_qT",  label: "q·T  (total)"  },
-  { key: "flux_qbX", label: "qb·S_X (open)" },
-  { key: "flux_qbZ", label: "qb·S_Z (open)" },
-];
+import Plot, { baseLayout, meshTrace, scene3d } from "./Plot";
+import { useSnapshotConfig } from "../hooks/useSnapshotButton";
+import {
+  TAU_CMAP, SIG_CMAP, FLUX_CMAP, TSW_CMAP, FLUX_OPTIONS,
+  boomRodTraces, type FluxKey,
+} from "./stressTraces";
 
 export function StressPlot() {
   const { runId, gen, loadcase, end, stressMode: mode, setStressMode: setMode, setNLoadcases } = useStore();
@@ -45,6 +16,7 @@ export function StressPlot() {
   const [st,  setSt]  = useState<StressScene | null>(null);
   const [tsw, setTsw] = useState<TswScene    | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const snapConfig = useSnapshotConfig("stress");
 
   useEffect(() => {
     if (!runId || mode === "tsw") return;
@@ -76,9 +48,6 @@ export function StressPlot() {
   if (mode !== "tsw" && !st)  return <div className="plot-loading">Loading stress state…</div>;
   if (mode === "tsw"  && !tsw) return <div className="plot-loading">Loading failure state…</div>;
 
-  const snapBtn = useSnapshotButton(runId, gen, "stress");
-  const snapConfig = { ...config, modeBarButtonsToAdd: [snapBtn] as any[] };
-
   // -------- Stress mode --------
   if (mode === "stress" && st) {
     const panelMesh: Mesh3D = { vertices: st.vertices, i: st.i, j: st.j, k: st.k };
@@ -100,33 +69,13 @@ export function StressPlot() {
 
     if (st.boom_rods && st.boom_rods.length > 0) {
       const sigAbs = st.sigma_abs ?? 1.0;
-      st.boom_rods.forEach((rod) => {
-        traces.push({
-          type: "scatter3d",
-          mode: "lines",
-          x: rod.xyz.map((p) => p[0]),
-          y: rod.xyz.map((p) => p[1]),
-          z: rod.xyz.map((p) => p[2]),
-          line: {
-            color: rod.sigma as number[],
-            colorscale: SIG_CMAP,
-            reversescale: false,
-            cmin: -sigAbs,
-            cmax: sigAbs,
-            width: 20,
-            colorbar: {
-              title: { text: "σ [MPa]" },
-              thickness: 12,
-              x: 1.0,
-              len: 0.45,
-              y: 0.22,
-            } as never,
-          },
-          name: rod.label,
-          hovertemplate: `${rod.label}  σ = %{line.color:.3g} MPa<extra>boom</extra>`,
-          showlegend: false,
-        } as Data);
-      });
+      traces.push(...boomRodTraces(st.boom_rods, {
+        colorscale: SIG_CMAP,
+        cmin: -sigAbs,
+        cmax: sigAbs,
+        colorbarTitle: "σ [MPa]",
+        hoverValue: "σ = %{line.color:.3g} MPa",
+      }));
     }
 
     return (
@@ -138,7 +87,7 @@ export function StressPlot() {
         </div>
         <Plot
           data={traces}
-          layout={{ ...baseLayout, margin: { l: 0, r: 100, t: 8, b: 0 }, scene: scene3d, showlegend: false }}
+          layout={{ ...baseLayout, margin: { l: 0, r: 100, t: 8, b: 0 }, scene: scene3d, showlegend: false, uirevision: `stress:${runId}` }}
           config={snapConfig}
           style={{ width: "100%", flex: 1 }}
           useResizeHandler
@@ -184,7 +133,7 @@ export function StressPlot() {
         </div>
         <Plot
           data={traces}
-          layout={{ ...baseLayout, margin: { l: 0, r: 80, t: 8, b: 0 }, scene: scene3d, showlegend: false }}
+          layout={{ ...baseLayout, margin: { l: 0, r: 80, t: 8, b: 0 }, scene: scene3d, showlegend: false, uirevision: `stress:${runId}` }}
           config={snapConfig}
           style={{ width: "100%", flex: 1 }}
           useResizeHandler
@@ -218,33 +167,13 @@ export function StressPlot() {
 
     if (tsw.boom_rods && tsw.boom_rods.length > 0) {
       const rBoomAbs = tsw.r_abs_booms ?? 2.0;
-      tsw.boom_rods.forEach((rod) => {
-        tswTraces.push({
-          type: "scatter3d",
-          mode: "lines",
-          x: rod.xyz.map((p) => p[0]),
-          y: rod.xyz.map((p) => p[1]),
-          z: rod.xyz.map((p) => p[2]),
-          line: {
-            color: rod.sigma as number[],
-            colorscale: TSW_CMAP,
-            reversescale: false,
-            cmin: 0,
-            cmax: rBoomAbs,
-            width: 20,
-            colorbar: {
-              title: { text: "R boom [-]" },
-              thickness: 12,
-              x: 1.0,
-              len: 0.45,
-              y: 0.22,
-            } as never,
-          },
-          name: rod.label,
-          hovertemplate: `${rod.label}  R = %{line.color:.3f}<extra>boom</extra>`,
-          showlegend: false,
-        } as Data);
-      });
+      tswTraces.push(...boomRodTraces(tsw.boom_rods, {
+        colorscale: TSW_CMAP,
+        cmin: 0,
+        cmax: rBoomAbs,
+        colorbarTitle: "R boom [-]",
+        hoverValue: "R = %{line.color:.3f}",
+      }));
     }
 
     return (
@@ -256,7 +185,7 @@ export function StressPlot() {
         </div>
         <Plot
           data={tswTraces}
-          layout={{ ...baseLayout, margin: { l: 0, r: 100, t: 8, b: 0 }, scene: scene3d, showlegend: false }}
+          layout={{ ...baseLayout, margin: { l: 0, r: 100, t: 8, b: 0 }, scene: scene3d, showlegend: false, uirevision: `stress:${runId}` }}
           config={snapConfig}
           style={{ width: "100%", flex: 1 }}
           useResizeHandler

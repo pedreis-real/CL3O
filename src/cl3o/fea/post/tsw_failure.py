@@ -38,7 +38,6 @@ Pipeline
 '''
 
 # ================ PyLib imports ================
-from pathlib import Path
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -55,7 +54,7 @@ from cl3o.Constants import N_BOOMS, N_PANELS, T2_TO_T1, BOOM_TO_T4
 from cl3o.utils import io_utils as io
 
 # Materials
-from cl3o.materials.laminate import PlyData, LaminateData
+from cl3o.materials.laminate import PlyData, LaminateData, MaterialHelper
 
 
 # ================================================================================
@@ -162,7 +161,7 @@ class TsaiWuFailure:
 
     def _get_laminate(self, lam_idx: int) -> LaminateData:
         '''Retrieve LaminateData from the static database by integer key.'''
-        return self.lam_db[f"MAT{int(lam_idx) + 1}"]
+        return MaterialHelper.laminate_by_index(self.lam_db, lam_idx)
 
     def _laminate_arrays(
         self,

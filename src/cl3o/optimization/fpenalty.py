@@ -37,9 +37,7 @@ prevents numeric overflow for pathological candidates.
 
 # ================ PyLib imports ================
 import math
-from pathlib import Path
 from dataclasses import dataclass
-from typing import Optional
 
 import numpy as np
 
@@ -120,13 +118,13 @@ class Penalty:
         self,
         data : tuple[FailureData, DisplacementData],
         Pcap : float = PENALTY_VARS["Pcap"],
-        v1 : Optional[float] = PENALTY_VARS["v1"],
-        v2 : Optional[float] = PENALTY_VARS["v2"],
-        nv_test : Optional[float] = PENALTY_VARS["nv_test"],
-        psi1 : Optional[float] = PENALTY_VARS["psi1"],
-        psi2 : Optional[float] = PENALTY_VARS["psi2"],
-        k : Optional[float] = PENALTY_VARS["k"],
-        v0 : Optional[float] = PENALTY_VARS["v0"],
+        v1 : float | None = PENALTY_VARS["v1"],
+        v2 : float | None = PENALTY_VARS["v2"],
+        nv_test : float | None = PENALTY_VARS["nv_test"],
+        psi1 : float | None = PENALTY_VARS["psi1"],
+        psi2 : float | None = PENALTY_VARS["psi2"],
+        k : float | None = PENALTY_VARS["k"],
+        v0 : float | None = PENALTY_VARS["v0"],
         enable_logging : bool  = True,
         verbose        : bool  = False,
     ) -> None:

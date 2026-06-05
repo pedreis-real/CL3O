@@ -28,6 +28,7 @@ from cl3o.geometry.wing        import WingData
 from cl3o.geometry.airfoil     import AirfoilData
 from cl3o.materials.laminate import LaminateData
 from cl3o.utils.oppoints       import OppData
+from cl3o.utils.database_utils import discover_laminates
 from cl3o.fea.loads.load_mapper import ExLoadsData, InLoadsData
 
 _MAT_DIR = DATA_DIR / "materials"
@@ -42,10 +43,7 @@ _K_MAX    = 1          # profile exactly 1 generation
 
 
 def _build_specs() -> list:
-    materials = sorted(
-        f.stem.removesuffix("_LaminateData")
-        for f in _MAT_DIR.glob("MAT_*_LaminateData.json")
-    )
+    materials = discover_laminates(_MAT_DIR)
     specs: list = []
     specs.append(DatabaseSpec(WingData,    _WNG_DIR, _AIRCRAFT.lower()))
     specs.append(DatabaseSpec(AirfoilData, _AFL_DIR, "wortmannfx63137"))
@@ -99,9 +97,14 @@ def main() -> None:
         ps2  = pstats.Stats(pr, stream=buf2).sort_stats("tottime")
         ps2.print_stats(fname)
         lines = [l for l in buf2.getvalue().splitlines() if fname in l.lower()]
-        total = sum(
-            float(l.split()[1]) for l in lines if len(l.split()) > 1
-        )
+        total = 0.0
+        for l in lines:
+            parts = l.split()
+            if len(parts) > 1:
+                try:                         # skip the pstats restriction header
+                    total += float(parts[1])
+                except ValueError:
+                    continue
         print(f"  {label:35s}: {total:.3f} s total (tottime)")
         for l in lines[:5]:
             print(f"    {l.strip()}")

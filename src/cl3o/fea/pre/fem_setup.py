@@ -15,7 +15,6 @@ linear static Finite Element Analysis.
 '''
 
 # ================ PyLib imports ================
-from pathlib import Path
 
 from dataclasses import dataclass, field
 

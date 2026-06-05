@@ -16,7 +16,6 @@ Y, with one curve per flight condition stored in the database.
 
 # ================ PyLib imports ================
 from pathlib import Path
-from typing import Optional
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -136,8 +135,8 @@ def plot_distribution(
     conditions     : list[str],
     b_mm           : float,
     ylabel         : str,
-    title          : Optional[str]        = None,
-    save_path      : Optional[str | Path] = None,
+    title          : str | None        = None,
+    save_path      : str | Path | None = None,
     show           : bool                 = False,
     shade          : bool                 = False,
     enable_logging : bool                 = True,
@@ -216,7 +215,7 @@ def plot_distribution(
 def plot_external_loads(
     exl_data       : ExLoadsData,
     b_mm           : float,
-    out_dir        : Optional[str | Path] = None,
+    out_dir        : str | Path | None = None,
     show           : bool                 = False,
     enable_logging : bool                 = True,
 ) -> list[plt.Figure]:
@@ -281,7 +280,7 @@ def plot_external_loads(
 def plot_internal_loads(
     inl_data       : InLoadsData,
     b_mm           : float,
-    out_dir        : Optional[str | Path] = None,
+    out_dir        : str | Path | None = None,
     show           : bool                 = False,
     enable_logging : bool                 = True,
 ) -> list[plt.Figure]:
@@ -355,8 +354,8 @@ def plot_internal_loads(
 def plot_loads_from_database(
     aircraft_name  : str,
     b_mm           : float,
-    lds_dir        : Optional[str | Path] = None,
-    out_dir        : Optional[str | Path] = None,
+    lds_dir        : str | Path | None = None,
+    out_dir        : str | Path | None = None,
     show           : bool                 = False,
     enable_logging : bool                 = True,
 ) -> tuple[list[plt.Figure], list[plt.Figure]]:

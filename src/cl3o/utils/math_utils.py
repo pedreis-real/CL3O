@@ -26,6 +26,17 @@ from scipy import interpolate as sci_interp
 _TOL = 1e-12
 
 
+def _is_close(a: float, b: float) -> bool:
+    '''
+    Scalar equivalent of np.isclose with its default tolerances.
+
+    Replicates |a - b| <= atol + rtol * |b| (atol=1e-8, rtol=1e-5) using
+    plain Python floats, avoiding the heavy array machinery np.isclose
+    invokes on scalar inputs (a hot-path overhead in the geometry build).
+    '''
+    return abs(a - b) <= 1e-8 + 1e-5 * abs(b)
+
+
 # ================================================================================
 # 1. Interpolation
 # ================================================================================
@@ -164,9 +175,9 @@ def integrate_closed_contour(
     Returns:
         Signed area enclosed by the contour.
     '''
-    if not (np.isclose(x[0], x[-1]) and np.isclose(y[0], y[-1])):
-        x = np.append(x, x[0])
-        y = np.append(y, y[0])
+    if not (_is_close(x[0], x[-1]) and _is_close(y[0], y[-1])):
+        x = np.concatenate((x, x[:1]))
+        y = np.concatenate((y, y[:1]))
     return 0.5 * float(np.dot(x[:-1], y[1:]) - np.dot(x[1:], y[:-1]))
 
 
@@ -202,9 +213,9 @@ def polygon_centroid(
     Returns:
         Tuple (x_c, y_c) with the centroid coordinates.
     '''
-    if not (np.isclose(x[0], x[-1]) and np.isclose(y[0], y[-1])):
-        x = np.append(x, x[0])
-        y = np.append(y, y[0])
+    if not (_is_close(x[0], x[-1]) and _is_close(y[0], y[-1])):
+        x = np.concatenate((x, x[:1]))
+        y = np.concatenate((y, y[:1]))
 
     A = integrate_closed_contour(x, y)
     if abs(A) < 1e-14:
@@ -528,19 +539,21 @@ def split_curve_at_x(
         included as the last/first element of each half respectively.
     '''
     _eps = 1e-12
-    idx   = int(np.clip(np.searchsorted(x, x_cut), 1, len(x) - 1))
+    idx   = min(max(int(np.searchsorted(x, x_cut)), 1), len(x) - 1)
     frac  = (x_cut - x[idx-1]) / (x[idx] - x[idx-1] + _eps)
     z_cut = z[idx-1] + frac * (z[idx] - z[idx-1])
-    x_left  = np.append(x[:idx], x_cut)
-    z_left  = np.append(z[:idx], z_cut)
-    x_right = np.insert(x[idx:], 0, x_cut)
-    z_right = np.insert(z[idx:], 0, z_cut)
+    x_left  = np.concatenate((x[:idx], (x_cut,)))
+    z_left  = np.concatenate((z[:idx], (z_cut,)))
+    x_right = np.concatenate(((x_cut,), x[idx:]))
+    z_right = np.concatenate(((z_cut,), z[idx:]))
     return (x_left, z_left), (x_right, z_right)
 
 
 def arc_length(x: np.ndarray, z: np.ndarray) -> float:
     '''Polyline arc length (open path).'''
-    return float(np.sum(np.sqrt(np.diff(x)**2 + np.diff(z)**2)))
+    dx = np.diff(x)
+    dz = np.diff(z)
+    return float(np.sum(np.sqrt(dx * dx + dz * dz)))
 
 
 def arc_length_to_x(

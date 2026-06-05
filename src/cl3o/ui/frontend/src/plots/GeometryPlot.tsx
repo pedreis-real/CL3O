@@ -2,172 +2,13 @@ import { useEffect, useState } from "react";
 import type { Data } from "plotly.js";
 import { useStore } from "../state/store";
 import { api } from "../api/client";
-import type { LaminateEntry, Scene } from "../types";
-import Plot, { baseLayout, config, meshTrace, scene3d, sparEdgeTrace } from "./Plot";
-import { useSnapshotButton } from "../hooks/useSnapshotButton";
-import { LAM_FAMILY_COLOR, materialColor, type LamFamily } from "./colors";
-
-interface XRow { i: number; variable: string; cp: string; value: number }
-
-function buildXRows(optvars: number[]): XRow[] {
-  const D = optvars.length;
-  const n = (D - 3) / 11;
-  if (!Number.isInteger(n) || n < 1) return [];
-  const blocks: { name: string; len: number; hasCp: boolean }[] = [
-    { name: "xw1",      len: n,     hasCp: true  },
-    { name: "xw2",      len: n,     hasCp: true  },
-    { name: "bf1_root", len: 1,     hasCp: false },
-    { name: "bf2_root", len: 1,     hasCp: false },
-    { name: "bf3_root", len: 1,     hasCp: false },
-    { name: "bf4_root", len: 1,     hasCp: false },
-    { name: "tpr",      len: n - 1, hasCp: true  },
-    { name: "ls1",      len: n,     hasCp: true  },
-    { name: "ls2",      len: n,     hasCp: true  },
-    { name: "lw1",      len: n,     hasCp: true  },
-    { name: "lw2",      len: n,     hasCp: true  },
-    { name: "lf1",      len: n,     hasCp: true  },
-    { name: "lf2",      len: n,     hasCp: true  },
-    { name: "lf3",      len: n,     hasCp: true  },
-    { name: "lf4",      len: n,     hasCp: true  },
-  ];
-  const rows: XRow[] = [];
-  let i = 0;
-  for (const blk of blocks) {
-    for (let k = 0; k < blk.len; k++) {
-      rows.push({
-        i,
-        variable: blk.name,
-        cp:       blk.hasCp ? String(k) : "—",
-        value:    optvars[i],
-      });
-      i++;
-    }
-  }
-  return rows;
-}
-
-function familyOf(scene: Scene | null, idx: number | undefined): LamFamily {
-  if (scene == null || idx == null || !scene.laminate_catalog) return "OTHER";
-  const entry = scene.laminate_catalog[String(Math.round(idx))];
-  const f = (entry?.family ?? "OTHER") as LamFamily;
-  return (LAM_FAMILY_COLOR[f] ? f : "OTHER");
-}
-
-function fmtModulus(v: number | null | undefined): string {
-  if (v == null) return "—";
-  return `${(v / 1000).toFixed(1)} GPa`;
-}
-
-// Table of laminates used in the run — shown in the top-left overlay.
-function LayupTable({
-  catalog,
-  usedIndices,
-  onClose,
-}: {
-  catalog: Record<string, LaminateEntry>;
-  usedIndices: number[];
-  onClose: () => void;
-}) {
-  const [expandedPlyRow, setExpandedPlyRow] = useState<number | null>(null);
-
-  return (
-    <div className="layup-table-panel">
-      <div className="layup-table-header">
-        <span>Layup catalog · click Plies cell to expand</span>
-        <button className="layup-table-close" onClick={onClose}>✕</button>
-      </div>
-      <div className="layup-table-scroll">
-        <table className="layup-table">
-          <thead>
-            <tr>
-              <th>#</th>
-              <th>Name</th>
-              <th>Em1</th>
-              <th>Em2</th>
-              <th>Gm12</th>
-              <th>Eb1</th>
-              <th>Eb2</th>
-              <th>Gb12</th>
-              <th>t [mm]</th>
-              <th>Stack</th>
-              <th>Plies</th>
-            </tr>
-          </thead>
-          <tbody>
-            {usedIndices.map((idx) => {
-              const entry = catalog[String(idx)];
-              const pliesExpanded = expandedPlyRow === idx;
-              if (!entry) return (
-                <tr key={idx}>
-                  <td className="idx">{idx}</td>
-                  <td className="name" colSpan={9} style={{ color: "#888", fontStyle: "italic" }}>
-                    material #{idx} — catalog mismatch (run used a different material set)
-                  </td>
-                </tr>
-              );
-              return (
-                <tr key={idx}>
-                  <td className="idx">{idx}</td>
-                  <td className="name">{entry.name.replace(/^MAT_/, "")}</td>
-                  <td>{fmtModulus(entry.E1)}</td>
-                  <td>{fmtModulus(entry.E2)}</td>
-                  <td>{fmtModulus(entry.G12)}</td>
-                  <td>{fmtModulus(entry.E1_bend)}</td>
-                  <td>{fmtModulus(entry.E2_bend)}</td>
-                  <td>{fmtModulus(entry.G12_bend)}</td>
-                  <td>{entry.thick != null ? entry.thick.toFixed(1) : "—"}</td>
-                  <td className="stack">{entry.stacking_seq ?? "—"}</td>
-                  <td
-                    className={`plies${pliesExpanded ? " plies-expanded" : ""}`}
-                    onClick={() => setExpandedPlyRow(pliesExpanded ? null : idx)}
-                    title={pliesExpanded ? "Click to collapse" : "Click to expand"}
-                  >
-                    {(entry.plies ?? []).join(", ")}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  );
-}
-
-function XVectorTable({
-  optvars,
-  onClose,
-}: {
-  optvars: number[];
-  onClose: () => void;
-}) {
-  const rows = buildXRows(optvars);
-  return (
-    <div className="layup-table-panel" style={{ left: 200 }}>
-      <div className="layup-table-header">
-        <span>Design vector X  (D = {optvars.length})</span>
-        <button className="layup-table-close" onClick={onClose}>✕</button>
-      </div>
-      <div className="layup-table-scroll">
-        <table className="layup-table">
-          <thead>
-            <tr><th>i</th><th>Variable</th><th>CP</th><th>Value</th></tr>
-          </thead>
-          <tbody>
-            {rows.map(({ i, variable, cp, value }) => (
-              <tr key={i}>
-                <td className="idx">{i}</td>
-                <td className="name">{variable}</td>
-                <td>{cp}</td>
-                <td>{value != null ? value.toFixed(4) : "—"}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  );
-}
+import type { Scene } from "../types";
+import Plot, { baseLayout, meshTrace, scene3d, sparEdgeTrace } from "./Plot";
+import { useSnapshotConfig } from "../hooks/useSnapshotButton";
+import {
+  buildLegendItems, collectUsedIndices, materialColorFor,
+} from "./geometryHelpers";
+import { LayupTable, XVectorTable } from "./GeometryTables";
 
 // 3-D baseline scene: translucent left-wing skin and spar surfaces.
 // Centroid / shear-centre lines have been removed (use Cross-section view instead).
@@ -177,6 +18,7 @@ export function GeometryPlot() {
   const [err, setErr] = useState<string | null>(null);
   const [showTable, setShowTable] = useState(false);
   const [showXTable, setShowXTable] = useState(false);
+  const snapConfig = useSnapshotConfig("geometry");
 
   useEffect(() => {
     if (!runId) return;
@@ -200,58 +42,9 @@ export function GeometryPlot() {
   const hasFam = scene.laminate_catalog != null;
   const catalog = scene.laminate_catalog ?? {};
 
-  function rawNameOf(idx: number | undefined): string {
-    if (idx == null) return "";
-    return catalog[String(Math.round(idx))]?.name ?? "";
-  }
-
-  function matColor(idx: number | undefined): string {
-    if (!hasFam) return "#62666e";
-    const rn = rawNameOf(idx);
-    return rn ? materialColor(rn, familyOf(scene, idx)) : LAM_FAMILY_COLOR["OTHER"];
-  }
-
-  // All unique laminate indices across every span-station and panel group.
-  const usedIndices: number[] = (() => {
-    if (!hasFam || !lu) return [];
-    const allArrays = [lu.ls1, lu.ls2, lu.lw1, lu.lw2, lu.lf1, lu.lf2, lu.lf3, lu.lf4];
-    const seen = new Set<number>();
-    for (const arr of allArrays) {
-      if (!arr) continue;
-      for (const v of arr) {
-        if (v != null) seen.add(Math.round(v));
-      }
-    }
-    return [...seen].sort((a, b) => a - b);
-  })();
-
-  // Legend items: one per unique laminate, ordered by first encounter.
-  const legendItems: { name: string; color: string; idx: number; unknown?: boolean }[] | null = (() => {
-    if (!hasFam || !lu) return null;
-    const rootIdxList = [
-      lu.ls1?.[0], lu.ls2?.[0], lu.lw1?.[0], lu.lw2?.[0],
-      lu.lf1?.[0], lu.lf2?.[0], lu.lf3?.[0], lu.lf4?.[0],
-    ];
-    const seen = new Set<string>();
-    const items: { name: string; color: string; idx: number; unknown?: boolean }[] = [];
-    for (const idx of rootIdxList) {
-      if (idx == null) continue;
-      const rn = rawNameOf(idx);
-      const key = rn || `#${Math.round(idx as number)}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      items.push({
-        name: rn ? rn.replace(/^MAT_/, "") : `unknown #${Math.round(idx as number)}`,
-        color: rn ? materialColor(rn, familyOf(scene, idx)) : LAM_FAMILY_COLOR["OTHER"],
-        idx: Math.round(idx as number),
-        unknown: !rn,
-      });
-    }
-    return items.length ? items : null;
-  })();
-
-  const snapBtn = useSnapshotButton(runId, gen, "geometry");
-  const snapConfig = { ...config, modeBarButtonsToAdd: [snapBtn] as any[] };
+  const matColor = (idx: number | undefined) => materialColorFor(scene, idx);
+  const usedIndices = collectUsedIndices(scene, lu);
+  const legendItems = buildLegendItems(scene, lu);
 
   const traces: Data[] = [
     // Nose skin (ls1) — LE to front spar.

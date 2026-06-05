@@ -25,6 +25,7 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
+from cl3o.utils.lru_cache import LRUCache
 from .serialize import to_jsonable
 
 # Backwards-compat for legacy pickles produced before the cl3o package
@@ -46,8 +47,11 @@ for _root in _LEGACY_ROOTS:
 _PKL_SUBDIRS = ("opt_files", "generations", "")
 
 # Full-run cache: all snapshots for a run loaded at once.
-# Key: str(run_dir), Value: {k: RuntimeData}
-_run_full_cache: dict[str, dict[int, object]] = {}
+# Key: str(run_dir), Value: {k: RuntimeData}. Bounded LRU so browsing
+# many runs in one session cannot grow the cache without limit (each
+# entry holds every generation pickle of one run).
+_RUN_CACHE_MAXSIZE = 4
+_run_full_cache: LRUCache = LRUCache(maxsize=_RUN_CACHE_MAXSIZE)
 
 # Static-file caches: keyed by the resolved file path string.
 _wing_cache: dict[str, object] = {}       # path -> WingData
@@ -228,10 +232,11 @@ class RunRepository:
         '''
         run_dir = self._run_dir(run_id)
         run_key = str(run_dir)
-        if run_key not in _run_full_cache:
+        cache = _run_full_cache.get(run_key)
+        if cache is None:
             manifest = self._read_json(run_dir / "manifest.json")
-            _run_full_cache[run_key] = _preload_run(run_dir, manifest)
-        cache = _run_full_cache[run_key]
+            cache = _preload_run(run_dir, manifest)
+            _run_full_cache[run_key] = cache
         ki = int(k)
         if ki not in cache:
             raise FileNotFoundError(
