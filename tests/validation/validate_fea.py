@@ -648,7 +648,7 @@ def run_cantilever_3d(
     femap_tip_d  = femap_d[-1, :]
 
     cl3o_root_R = results.R[0:6, 0]
-    cl3o_tip_d  = results.d_c[-6:, 0]
+    cl3o_tip_d  = results.d[-6:, 0]     # d : shear-cntre ; d_c : centroid
 
     report_cantilever_comparison(
         case_name    = '3D curved beam',

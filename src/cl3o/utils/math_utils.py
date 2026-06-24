@@ -444,9 +444,9 @@ def rot2(ang: float) -> np.ndarray:
     c = np.cos(ang)
     s = np.sin(ang)
     return np.array([
-        [   c, 0.0,  -s],
+        [   c, 0.0,   s],
         [ 0.0, 1.0, 0.0],
-        [   s, 0.0,   c],
+        [  -s, 0.0,   c],
     ])
 
 

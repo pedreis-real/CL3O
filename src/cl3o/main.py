@@ -666,7 +666,7 @@ def _resolve_db_specs(
 
 if __name__ == "__main__":
     aircraft_name = "DA62"
-    opt_name = "Opt-Final-Ajusted-2"
+    opt_name = "Opt-LHS-4-initial"
 
     # ---------------- Set database specifications ----------------
     # Laminates are discovered by glob over MAT_*_LaminateData.json; the
@@ -731,7 +731,11 @@ if __name__ == "__main__":
             "pipeline_logging": False,
             "enable_logging"  : True,
         },
-        de_hyperpar    = DE_HYPERPAR,
+        de_hyperpar    = {**DE_HYPERPAR,
+                          'NP' : 30,
+                          'CR' : 0.803,
+                          'F'  : 0.804,
+                          'lambda' : 0.904},
     )
     runner.run()
 
@@ -740,7 +744,7 @@ if __name__ == "__main__":
 # 0     65      0.6321      0.8837      0.3052
 # 1     73      0.7418      1.4992      0.0149
 # 2     17      0.7829      0.3308      0.1006
-# 3     30      0.8031      0.8041      0.9044
+# 3     30      0.8031      0.8041      0.9044  <-- menor fitness
 # 4     52      0.8569      0.3785      0.0678
 # 5     21      0.6094      0.4334      0.1859
 # 6     61      0.8991      1.3681      0.6938
@@ -751,7 +755,7 @@ if __name__ == "__main__":
 # 11    36      0.5963      0.5537      0.2818
 # 12    68      0.6887      1.1115      0.6000
 # 13    42      0.7579      1.0479      0.2168
-# 14    23      0.9089      0.7081      0.3930  <-- amostra escolhida
+# 14    23      0.9089      0.7081      0.3930  <-- custo balanceado
 # 15    28      0.5032      0.5381      0.7398
 # 16    34      0.9686      0.7397      0.8004
 # 17    55      0.5358      1.1521      0.7587

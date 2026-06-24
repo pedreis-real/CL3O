@@ -277,11 +277,9 @@ class LinearStaticSolver:
                 T_c_gl = self.mesh.T_c_gl[:, :, j]
 
                 Q_sc[:, j, i] = T_sc @ d_i[address]
-                Q_sc[4, j, i] = -Q_sc[4, j, i]      # My = -My
                 Q_sc_gl[:, j, i] = T_sc_gl @ d_i[address]
 
                 Q_c[:, j, i] = T_c @ d_i[address]
-                Q_c[4, j, i] = -Q_c[4, j, i]        # My = -My
                 Q_c_gl[:, j, i] = T_c_gl @ d_i[address]
 
             # Step 7. Reshape

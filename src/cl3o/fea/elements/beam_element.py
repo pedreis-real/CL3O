@@ -325,7 +325,7 @@ class BeamElement:
         '''
         a, b, c = self.a, self.b, self.c
 
-        R_a, R_b, R_c = mthu.rot3(a), mthu.rot2(b), mthu.rot3(c)
+        R_a, R_b, R_c = mthu.rot3(a), mthu.rot2(b), mthu.rot1(c)
 
         gamma_rot = R_c @ R_b @ R_a
 

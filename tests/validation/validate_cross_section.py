@@ -46,42 +46,44 @@ _DFLT_FACTORY = np.zeros([_N_TEST_SAMPLE, _N_TEST_SAMPLE])
 _FILEPATH = _DFLT_OUT_PATH / "cross_section_validation.json"
 
 # Seção 1
-# _AFL = "e169_AirfoilData.json"
+_AFL = "e169_AirfoilData.json"
+_CHORD  = 300.0
+_TWIST  = 0.0
+_Y_STA  = 0.0
+_XW1    = 60.0  / _CHORD
+# _XW1    = np.linspace(_XW1_RANGE[0], _XW1_RANGE[1], _N_TEST_SAMPLE)
+_XW2    = 210.0 / _CHORD
+# _XW2    = np.linspace(_XW2_RANGE[0], _XW2_RANGE[1], _N_TEST_SAMPLE)
+_E1     = 200_000.0
+_E2     =  10_000.0
+_E1B    = _E1        # homogeneous: bending == membrane
+_E2B    = _E2
+_G      =   6_000.0
+_T_SEG     = np.array([1.8, 1.8, 1.8, 1.8, 1.8, 4.0, 2.0])
+_T_FLANGE  = np.array([3.0, 2.5, 3.0, 2.0])
+# _T_FLANGE  = np.full(4, 2.0)
+_BF        = np.array([12.0, 10.0, 8.0, 8.0])
+# _BF        = np.full(4, 10.0)
+
+# Seção 2
+# _AFL = "wortmannfx63137_AirfoilData.json"
 # _CHORD  = 300.0
 # _TWIST  = 0.0
 # _Y_STA  = 0.0
-# _XW1    = 60.0  / _CHORD
+# _XW1    = 90.0 / _CHORD
 # # _XW1    = np.linspace(_XW1_RANGE[0], _XW1_RANGE[1], _N_TEST_SAMPLE)
-# _XW2    = 210.0 / _CHORD
+# _XW2    = 170.0 / _CHORD
 # # _XW2    = np.linspace(_XW2_RANGE[0], _XW2_RANGE[1], _N_TEST_SAMPLE)
 # _E1     = 200_000.0
 # _E2     =  10_000.0
 # _G      =   6_000.0
-# _T_SEG     = np.array([1.8, 1.8, 1.8, 1.8, 1.8, 4.0, 2.0])
-# _T_FLANGE  = np.array([3.0, 2.5, 3.0, 2.0])
+# _E1B    = _E1        # homogeneous: bending == membrane
+# _E2B    = _E2
+# _T_SEG     = np.array([4, 2, 2, 2, 2, 3, 2], dtype=float)
+# _T_FLANGE  = np.array([4, 2.5, 2, 2], dtype=float)
 # # _T_FLANGE  = np.full(4, 2.0)
-# _BF        = np.array([12.0, 10.0, 8.0, 8.0])
+# _BF        = np.array([16, 12, 7, 12], dtype=float)
 # # _BF        = np.full(4, 10.0)
-
-# Seção 2
-_AFL = "wortmannfx63137_AirfoilData.json"
-_CHORD  = 300.0
-_TWIST  = 0.0
-_Y_STA  = 0.0
-_XW1    = 90.0 / _CHORD
-# _XW1    = np.linspace(_XW1_RANGE[0], _XW1_RANGE[1], _N_TEST_SAMPLE)
-_XW2    = 170.0 / _CHORD
-# _XW2    = np.linspace(_XW2_RANGE[0], _XW2_RANGE[1], _N_TEST_SAMPLE)
-_E1     = 200_000.0
-_E2     =  10_000.0
-_G      =   6_000.0
-_E1B    = _E1        # homogeneous: bending == membrane
-_E2B    = _E2
-_T_SEG     = np.array([4, 2, 2, 2, 2, 3, 2], dtype=float)
-_T_FLANGE  = np.array([4, 2.5, 2, 2], dtype=float)
-# _T_FLANGE  = np.full(4, 2.0)
-_BF        = np.array([16, 12, 7, 12], dtype=float)
-# _BF        = np.full(4, 10.0)
 
 _PROP_LABELS: dict[str, str] = {
     # 'A'   : 'A [mm^2]',
@@ -305,7 +307,7 @@ def plot_section(gd: GeomData) -> None:
     ax.scatter(bx, bz,s=50, color='#1b6511', zorder=5, label='Booms')
 
     # -------- Flanges and stringers --------
-    ax.scatter(flsx, flsz,s=20, color='#b7213e', marker='*', zorder=5, label='Flanges and reforçadores')
+    ax.scatter(flsx, flsz,s=20, color='#b7213e', marker='*', zorder=5, label='Flanges e reforçadores')
 
     # -------- Centroid --------
     ax.scatter(Xc, Zc,
