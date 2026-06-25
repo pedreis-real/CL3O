@@ -11,26 +11,29 @@ visualizes archived optimization runs.
 The reference design used throughout the codebase is the **DA62** wing with the
 **Wortmann FX 63-137** airfoil.
 
-This project began as an undergraduate thesis (*Trabalho de Conclusão de
-Curso*) in Aerospace Engineering at the **Universidade Federal de Minas Gerais
+This project began as an undergraduate thesis (*Desenvolvimento de software para
+dimensionamento estrutural preliminar de asas em material composto*) in
+Aerospace Engineering at the **Universidade Federal de Minas Gerais
 (UFMG)**, Belo Horizonte, 2026.
 
 ## How it works
 
 A single design vector encodes, per spanwise control point, the spar positions,
 flange widths, and the laminate selected for each structural role (skins, webs,
-flanges). For every DE candidate the evaluator runs a 10-step pipeline:
+flanges). For every DE candidate the evaluator runs a 11-step pipeline:
 
 1. Validate and decode the design vector into per-control-point variables.
-2. Build the three-cell cross-section geometry and structural idealization.
+2. Build the three-cell cross-section geometry, based on design vector and
+   airfoil points, using structural idealization methods.
 3. Assemble the global beam mesh and stiffness matrix.
-4. Solve the linear static system `{F} = [K]{d}`.
-5. Recover boom axial and panel shear stresses.
-6. Evaluate Tsai–Wu ply-by-ply margins of safety.
-7. Evaluate displacement (deflection / twist) margins.
-8. Compute a penalty `P(X)` from the violations.
-9. Compute the structural mass `m(X)`.
-10. Combine into the scalar fitness `z(X) = w_m · m(X) + P(X)`.
+4. Solve the linear static system `{F} = [K]{d}` - for every dof.
+5. Recover reaction forces and internal forces per element-ends.
+6. Recover boom axial and panel shear stresses.
+7. Evaluate Tsai–Wu ply-by-ply margins of safety.
+8. Evaluate displacement (deflection / twist) margins.
+9. Compute a penalty `P(X)` from the violations.
+10. Compute the structural mass `m(X)`.
+11. Combine into the scalar fitness `z(X) = w_m · m(X) + P(X)`.
 
 ## Installation
 
@@ -128,6 +131,10 @@ Heavy tests are marked `slow`; tests that require real JSON database files on
 disk are marked `integration`. The plot-based validators under
 `tests/validation/` run headless by default (`_SHOW_PLOTS = False`); set that
 flag to `True` to display figures interactively.
+
+Golden-output regression tests (`tests/test_regression_golden.py`) pin a single
+DA62 evaluation and a short DE run against frozen fixtures in `tests/golden/`,
+catching unintended numerical drift.
 
 ## Notes
 

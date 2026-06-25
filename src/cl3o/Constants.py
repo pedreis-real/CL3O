@@ -53,11 +53,15 @@ STALL_REL_TOL = 0.01    # 1 gram order
 # Optimization design-vector boundaries
 OPT_LIMS = {
     'xw1'          : (0.10, 0.40),
-    'xw2'          : (0.30, 0.75),  # may overlap xw1; swap enforced at decode
+    'xw2'          : (0.30, 0.65),  # may overlap xw1; swap enforced at decode
+    # 'xw2'          : (0.30, 0.75),  # may overlap xw1; swap enforced at decode
     'bfk'          : (0.02, 0.10),
-    'layup_skin'   : (6, 11),       # ls1, ls2  - AP/QI group (torsion/shear)
-    'layup_web'    : (6, 11),       # lw1, lw2  - AP/QI group (torsion/shear)
-    'layup_flange' : (0, 5),        # lf1..lf4  - UD/CRS group (normal stress)
+    'layup_skin'   : (0, 11),       # ls1, ls2  - AP/QI group (torsion/shear)
+    'layup_web'    : (0, 11),       # lw1, lw2  - AP/QI group (torsion/shear)
+    'layup_flange' : (0, 11),        # lf1..lf4  - UD/CRS group (normal stress)
+    # 'layup_skin'   : (6, 11),       # ls1, ls2  - AP/QI group (torsion/shear)
+    # 'layup_web'    : (6, 11),       # lw1, lw2  - AP/QI group (torsion/shear)
+    # 'layup_flange' : (0, 5),        # lf1..lf4  - UD/CRS group (normal stress)
     'fl_tpr'       : (0.01, 1.0),
 }
 
@@ -66,18 +70,33 @@ OPT_LIMS = {
 # laminate_db). Groups: UD 0-2, CRS 3-5, AP 6-8, QI 9-11.
 LAYUP_ORDER: list[str] = [
     "MAT_CFRP_AS4_UD24",    # 0  - UD   CFRP AS4
-    "MAT_CFRP_IM7_UD24",    # 1  - UD   CFRP IM7
-    "MAT_SAND-HC_UD",       # 2  - UD   sandwich HC
-    "MAT_CFRP_AS4_CRS24",   # 3  - CRS  CFRP AS4
-    "MAT_CFRP_IM7_CRS24",   # 4  - CRS  CFRP IM7
-    "MAT_SAND-HC_CRS",      # 5  - CRS  sandwich HC
-    "MAT_CFRP_AS4_AP24",    # 6  - AP   CFRP AS4
-    "MAT_CFRP_IM7_AP24",    # 7  - AP   CFRP IM7
-    "MAT_SAND-HC_AP",       # 8  - AP   sandwich HC
-    "MAT_CFRP_AS4_QI24",    # 9  - QI   CFRP AS4
-    "MAT_CFRP_IM7_QI24",    # 10 - QI   CFRP IM7
+    "MAT_CFRP_AS4_CRS24",   # 1  - CRS  CFRP AS4
+    "MAT_CFRP_AS4_AP24",    # 2  - AP   CFRP AS4
+    "MAT_CFRP_AS4_QI24",    # 3  - QI   CFRP AS4
+    "MAT_CFRP_IM7_UD24",    # 4  - UD   CFRP IM7
+    "MAT_CFRP_IM7_CRS24",   # 5  - CRS  CFRP IM7
+    "MAT_CFRP_IM7_AP24",    # 6  - AP   CFRP IM7
+    "MAT_CFRP_IM7_QI24",    # 7  - QI   CFRP IM7
+    "MAT_SAND-HC_UD",       # 8  - UD   sandwich HC
+    "MAT_SAND-HC_CRS",      # 9  - CRS  sandwich HC
+    "MAT_SAND-HC_AP",       # 10 - AP   sandwich HC
     "MAT_SAND-HC_QI",       # 11 - QI   sandwich HC
 ]
+
+# LAYUP_ORDER: list[str] = [  # old     new 
+#     "MAT_CFRP_AS4_UD24",    # 0       0   - UD   CFRP AS4
+#     "MAT_CFRP_IM7_UD24",    # 3       1   - UD   CFRP IM7
+#     "MAT_SAND-HC_UD",       # 6       2   - UD   sandwich HC
+#     "MAT_CFRP_AS4_CRS24",   # 9       3   - CRS  CFRP AS4
+#     "MAT_CFRP_IM7_CRS24",   # 1       4   - CRS  CFRP IM7
+#     "MAT_SAND-HC_CRS",      # 4       5   - CRS  sandwich HC
+#     "MAT_CFRP_AS4_AP24",    # 7       6   - AP   CFRP AS4
+#     "MAT_CFRP_IM7_AP24",    # 10      7   - AP   CFRP IM7
+#     "MAT_SAND-HC_AP",       # 2       8   - AP   sandwich HC
+#     "MAT_CFRP_AS4_QI24",    # 5       9   - QI   CFRP AS4
+#     "MAT_CFRP_IM7_QI24",    # 8       10  - QI   CFRP IM7
+#     "MAT_SAND-HC_QI",       # 11      11  - QI   sandwich HC
+# ]
 
 # Penalty paremeters
 PENALTY_VARS = {

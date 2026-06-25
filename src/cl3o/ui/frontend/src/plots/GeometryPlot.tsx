@@ -10,8 +10,8 @@ import {
 } from "./geometryHelpers";
 import { LayupTable, XVectorTable } from "./GeometryTables";
 
-// 3-D baseline scene: translucent left-wing skin and spar surfaces.
-// Centroid / shear-centre lines have been removed (use Cross-section view instead).
+// 3-D baseline scene: translucent wing skin and spar surfaces.
+const OPACITY = 0.80
 export function GeometryPlot() {
   const { runId, gen, publish, info } = useStore();
   const [scene, setScene] = useState<Scene | null>(null);
@@ -50,23 +50,23 @@ export function GeometryPlot() {
     // Nose skin (ls1) — LE to front spar.
     meshTrace(scene.surface_ls1, {
       color: matColor(lu?.ls1?.[0]),
-      opacity: 0.65,
+      opacity: OPACITY,
       name: `skin LE→spar  ls1=${lu?.ls1?.[0] ?? "?"}`,
     }),
     // Box skin (ls2) — front spar to TE.
     meshTrace(scene.surface_ls2, {
       color: matColor(lu?.ls2?.[0]),
-      opacity: 0.65,
+      opacity: OPACITY,
       name: `skin spar→TE  ls2=${lu?.ls2?.[0] ?? "?"}`,
     }),
     meshTrace(scene.front_spar, {
       color: matColor(lu?.lw1?.[0]),
-      opacity: 0.65,
+      opacity: OPACITY,
       name: `front spar  lw1=${lu?.lw1?.[0] ?? "?"}`,
     }),
     meshTrace(scene.rear_spar, {
       color: matColor(lu?.lw2?.[0]),
-      opacity: 0.65,
+      opacity: OPACITY,
       name: `rear spar  lw2=${lu?.lw2?.[0] ?? "?"}`,
     }),
     sparEdgeTrace(scene.front_spar, "#000000", "front spar edge"),
@@ -74,7 +74,7 @@ export function GeometryPlot() {
     ...(scene.flanges ?? []).map((fl) =>
       meshTrace(fl, {
         color: matColor(fl.layup_idx),
-        opacity: 0.65,
+        opacity: OPACITY,
         name: `${fl.label}  lam=${fl.layup_idx}`,
       }),
     ),

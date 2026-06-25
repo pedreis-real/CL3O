@@ -283,8 +283,9 @@ def _run_sample(
     run  = RunOpt(
         setup          = setup,
         feasible_check = _is_feasible,
-        on_generation  = None,
+        on_generation  = False,
         enable_logging = True,
+        # out_dir = out_dir,
     )
     hist = run.history
     bf   = hist.best_f
@@ -565,7 +566,7 @@ def main() -> None:
     rng         = np.random.default_rng(args.seed)
     params_list = _lhs_samples(args.samples, _PARAM_RANGES, rng)
 
-    csv_lhs = out_dir / "lhs_samples.csv"
+    csv_lhs = out_dir / "lhs_samples_2.csv"
     with open(csv_lhs, "w", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=list(_PARAM_RANGES.keys()))
         writer.writeheader()
