@@ -53,6 +53,7 @@ Outputs written to tools/output/sensitivity/:
 import argparse
 import csv
 import pickle
+import json
 import sys
 from pathlib import Path
 
@@ -96,10 +97,10 @@ from cl3o.main import RunCLEO, _resolve_db_specs, DatabaseSpec, MainHelpers
 # ================================================================================
 
 _AIRCRAFT  = "DA62"
-_RUN       = "opt-final-1"
-_N_PERT    = 20       # perturbations per structural group (override with --npert)
+_RUN       = "opt-tune-5-lhs-17-seed-67 (83)"
+_N_PERT    = 100       # perturbations per structural group (override with --npert)
 _RADIUS    = 0.15      # fraction of range used as radius around X_ref (override with --radius)
-_OUT_DIR   = Path(__file__).resolve().parent / "output" / f"sensitivity-{_N_PERT}-{_RADIUS}"
+_OUT_DIR   = Path(__file__).resolve().parent / "output" / f"sensitivity-{_N_PERT}-{_RADIUS}" / f"{_RUN}"
 
 _GROUP_NAMES  = ["Longarinas", "Flanges-largura", "Revestimento", "Almas", "Flanges-layup"]
 _GROUP_COLORS = ["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd"]
@@ -168,20 +169,14 @@ def _load_last_pkl(run_name: str) -> object:
             f"| run  : {run_name}\n"
             f"| path : {run_dir}"
         )
-    pkl_files: list[Path] = []
-    for sub in _PKL_SUBDIRS:
-        candidate = run_dir / sub if sub else run_dir
-        if candidate.is_dir():
-            pkl_files = sorted(candidate.glob("gen_*.pkl"))
-            if pkl_files:
-                break
-    if not pkl_files:
-        raise FileNotFoundError(
-            f"[CL3O] No gen_*.pkl files found in run directory.\n"
-            f"| run  : {run_name}\n"
-            f"| path : {run_dir}"
-        )
-    last_pkl = pkl_files[-1]
+
+    manifest_filepath = run_dir / "manifest.json"
+    with open(manifest_filepath, "r", encoding="utf-8") as f:
+        manifest = json.load(f)
+    
+    last_feasible = manifest["distinct_individuals"][-1]
+    last_pkl = Path(run_dir / "generations" / last_feasible["file"])
+
     print(f"  loading reference from: {last_pkl.relative_to(OUTPUTS_DIR.parent)}")
     with open(last_pkl, "rb") as fh:
         return pickle.load(fh)

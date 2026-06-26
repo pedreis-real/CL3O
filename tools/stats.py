@@ -28,13 +28,16 @@ from matplotlib.patches import Patch
 from matplotlib.lines import Line2D
 import seaborn as sns
 
-# ================ Module imports ================
+# ======================== Module imports ========================
 
 # Utilities
 from cl3o.paths import ROOT_DIR, OUTPUTS_DIR
 from cl3o.utils import io_utils as io
 
-RUN_NAME = "da62_opt-1"
+# ======================== Global variables ========================
+
+_RUN_NAME   = "da62_opt-tune-5-lhs-17-seed-67 (83)"
+_ANOVA_PATH = Path("sensitivity-100-0.15") / _RUN_NAME.removeprefix("da62_")
 
 # ================================================================================
 # Matplotlib global setup
@@ -248,6 +251,8 @@ class StatsData:
     rate_pattern    derived: glob for per-sample LHS folders
     fea_csv         derived: out_dir/fea_validation/fea_validation.csv
     geom_csv        derived: out_dir/geom_validation/geom_validation.csv
+    seed_csv        path to the seed-per-sample .xlsx (columns: sample, seed,
+                    f*, k_conv, time [min]); None disables seed analysis
     '''
     aircraft     : str = "da62"
     sweep        : str = "tune-de-3"
@@ -257,6 +262,7 @@ class StatsData:
     out_dir      : Path | None = None
     dpi          : int = 150
     fmt          : str = "pdf"
+    seed_csv     : Path | None = None
 
     lhs_results   : Path = field(init=False)
     anova_results : Path = field(init=False)
@@ -273,13 +279,15 @@ class StatsData:
             self.out_dir = self.tools_out / "stats"
         self.out_dir = Path(self.out_dir)
         self.lhs_results   = self.tools_out / self.sweep / "results.csv"
-        self.anova_results = self.tools_out / "sensitivity" / "anova_results.csv"
-        self.anova_summary = self.tools_out / "sensitivity" / "anova_summary.csv"
+        self.anova_results = self.tools_out / f"{_ANOVA_PATH}" / "anova_results.csv"
+        self.anova_summary = self.tools_out / f"{_ANOVA_PATH}" / "anova_summary.csv"
         self.rate_pattern  = f"{self.aircraft}_{self.sweep}_LHS-*"
         self.fea_csv       = self.out_dir / "fea_validation"  / "fea_validation.csv"
         self.geom_csv      = self.out_dir / "geom_validation" / "geom_validation.csv"
         if self.run_name is None:
             self.run_name = f"{self.aircraft}_{self.sweep}_LHS-0"
+        if self.seed_csv is not None:
+            self.seed_csv = Path(self.seed_csv)
         self.out_dir.mkdir(parents=True, exist_ok=True)
 
 
@@ -440,6 +448,27 @@ class StatsHelper:
             return pickle.load(fh)
 
     @staticmethod
+    def load_seed_sensitivity(path: str | Path) -> pd.DataFrame:
+        '''
+        Read and normalise the seed-per-sample Excel table.
+
+        Expected columns: sample, seed, f*, k_conv, time [min].
+        The ``sample`` column may have NaN in continuation rows (merged cells);
+        those are forward-filled so every row carries its sample index.
+        The result is always sorted by (sample, seed).
+
+        Args:
+            path: Path to the .xlsx file.
+
+        Returns:
+            Cleaned DataFrame with integer ``sample`` and ``seed`` columns.
+        '''
+        df = pd.read_excel(path)
+        df["sample"] = df["sample"].ffill().astype(int)
+        df["seed"]   = df["seed"].astype(int)
+        return df.sort_values(["sample", "seed"]).reset_index(drop=True)
+
+    @staticmethod
     def load_all_pkls(run_dir: str | Path) -> list[tuple[int, object]]:
         '''Load every gen_*.pkl from a run, returning sorted (k, rt) pairs.'''
         result: list[tuple[int, object]] = []
@@ -467,7 +496,7 @@ class RunStats:
         _setup_mpl()
 
     # ---------------------------------------------------------------- helpers
-    def _save(self, fig: plt.Figure, name: str, subdir: str = RUN_NAME) -> None:
+    def _save(self, fig: plt.Figure, name: str, subdir: str = _RUN_NAME) -> None:
         '''Save and close a figure as <out_dir>/<subdir>/<name>.<fmt>.'''
         path = self.data.out_dir / subdir / f"{name}.{self.data.fmt}"
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -515,6 +544,7 @@ class RunStats:
                 "[CL3O] No per-sample rate.csv found -- skipping convergence figure."
             )
         self._lhs_speed_ecdf(df)
+        self._lhs_speed_ecdf_3d(df)
 
     def _lhs_param_scatter(self, df: pd.DataFrame) -> None:
         params = [c for c in _LHS_PARAMS if c in df.columns]
@@ -528,7 +558,7 @@ class RunStats:
             y_label = r"$k_\text{adm}$"
         else:
             y_col   = "best_f_final"
-            y_label = r"$f^{\,*}$"
+            y_label = r"$f^\star_{\mathrm{min}}$"
         fig, axes = plt.subplots(2, 2, figsize=(9, 7))
         flat = axes.ravel()
         for ax, par in zip(flat, params):
@@ -560,8 +590,11 @@ class RunStats:
         self._save(fig, "lhs_param_scatter")
 
     def _resolve_highlights(
-        self, curves: dict[int, pd.DataFrame], df: pd.DataFrame
-    ) -> tuple[dict, int | None, int | None, int | None]:
+        self,
+        curves: dict[int, pd.DataFrame],
+        df: pd.DataFrame,
+        num_low_costs: int,
+    ) -> tuple[dict, int, int, int, int, tuple[int, int]]:
         '''
         Resolve the highlighted-sample indices and per-sample timing metadata.
 
@@ -581,14 +614,17 @@ class RunStats:
         '''
         valid: dict = {}
         best_idx = best_f_idx = min_np_idx = max_np_idx = None
+        low_cost_idx = []
         if not {"elapsed_s", "n_gens", "sample_idx"}.issubset(df.columns):
-            return valid, best_idx, best_f_idx, min_np_idx, max_np_idx
+            return valid, best_idx, best_f_idx, min_np_idx, max_np_idx, low_cost_idx
 
         meta = df.set_index("sample_idx")[["elapsed_s", "n_gens"]].copy()
         meta["k_conv_time"] = meta["n_gens"] * meta["elapsed_s"] / 60
         valid = {idx: meta.loc[idx] for idx in curves if idx in meta.index}
         if valid:
             best_idx = min(valid, key=lambda i: valid[i]["k_conv_time"])
+            sorted_by_cost = sorted(valid, key=lambda i: valid[i]["k_conv_time"])
+            low_cost_idx = [idx for idx in sorted_by_cost if idx != best_idx][:num_low_costs]
             df_valid = df[df["sample_idx"].isin(valid)]
             if "best_f_final" in df.columns and not df_valid.empty:
                 best_f_idx = int(
@@ -601,7 +637,7 @@ class RunStats:
                 max_np_idx = int(
                     df_valid.loc[df_valid["NP"].idxmax(), "sample_idx"]
                 )
-        return valid, best_idx, best_f_idx, min_np_idx, max_np_idx
+        return valid, best_idx, best_f_idx, min_np_idx, max_np_idx, tuple(low_cost_idx)
 
     def _plot_convergence(
         self,
@@ -634,14 +670,16 @@ class RunStats:
             marker_size: Size of the convergence-point marker.
             conv_zorder: Draw order of the convergence-point marker.
         '''
-        valid, best_idx, best_f_idx, min_np_idx, max_np_idx = self._resolve_highlights(curves, df)
+        n_low_costs = 2
+        valid, best_idx, best_f_idx, min_np_idx, max_np_idx, low_cost = \
+            self._resolve_highlights(curves, df, n_low_costs)
         if time_scaled and not valid:
             self.logger.warning(
                 "[CL3O] results.csv missing columns for expand plot -- skipping."
             )
             return
 
-        low_cost = (0, 4)
+        # low_cost = (0, 4)
 
         def _style(idx: int) -> tuple:
             for key, style in (
@@ -665,7 +703,7 @@ class RunStats:
             if idx == best_f_idx:
                 row   = df[df["sample_idx"] == idx]
                 f_val = float(row["best_f_final"].iloc[0]) if not row.empty else float("nan")
-                sub   = r"f^*_{\mathrm{min}}"
+                sub   = r"f^\star_{\mathrm{min}}"
                 return rf"amostra {idx+1}: menor ${sub}$  (${sub} = {_cfmt(f_val, 2)}$)"
             if idx == min_np_idx:
                 row    = df[df["sample_idx"] == idx]
@@ -695,7 +733,7 @@ class RunStats:
                            color=color if highlighted else "0.5", zorder=conv_zorder)
 
         ax.set_xlabel(xlabel)
-        ax.set_ylabel(r"$f^{\,*}$ [kg]")
+        ax.set_ylabel(r"$f^\star$ [kg]")
         ax.legend()
         ax.grid(True, which="both", alpha=0.3)
         fig.tight_layout()
@@ -705,7 +743,7 @@ class RunStats:
         self, curves: dict[int, pd.DataFrame], df: pd.DataFrame
     ) -> None:
         '''Time-scaled convergence curves, every sample labelled, no highlighting.'''
-        valid, *_ = self._resolve_highlights(curves, df)
+        valid, *_ = self._resolve_highlights(curves, df, 2)
         if not valid:
             self.logger.warning(
                 "[CL3O] results.csv missing columns for expand plot -- skipping."
@@ -727,7 +765,7 @@ class RunStats:
                 )
 
         ax.set_xlabel(r"$k \cdot \Delta t$ [gen. $\times$ min]")
-        ax.set_ylabel(r"$f^{\,*}$ [kg]")
+        ax.set_ylabel(r"$f^\star$ [kg]")
         ax.legend()
         ax.grid(True, which="both", alpha=0.3)
         fig.tight_layout()
@@ -747,7 +785,7 @@ class RunStats:
             size_col = None
         fig, ax = plt.subplots(figsize=(8, 5))
         sc = ax.scatter(
-            d["n_gens"], d["elapsed_s"],
+            d["n_gens"], d["elapsed_s"] / 60,
             s      = sizes,
             c      = np_vals if size_col else "steelblue",
             cmap   = "viridis" if size_col else None,
@@ -760,7 +798,7 @@ class RunStats:
         for _, row in d.iterrows():
             ax.annotate(
                 str(int(row["sample_idx"])+1),
-                xy         = (row["n_gens"], row["elapsed_s"]),
+                xy         = (row["n_gens"], row["elapsed_s"] / 60),
                 xytext     = (5, 5),
                 textcoords = "offset points",
                 fontsize   = 7,
@@ -771,12 +809,150 @@ class RunStats:
             cbar.set_label(r"$\mathrm{{NP}}$")
             cbar.set_ticks([10, 20, 30, 40, 50, 60, 70, 80])
         ax.set_xlabel(r"$k_{\mathrm{conv}}$")
-        ax.set_ylabel(r"$\Delta t$ [s]")
+        ax.set_ylabel(r"$\Delta t$ [min]")
         # ax.set_title(r"Custo de Convergência por Amostra LHS -- $k_{\mathrm{conv}}$ vs $t$")
         _apply_comma(ax, xp=0, yp=0)
         ax.grid(True, alpha=0.3)
         fig.tight_layout()
         self._save(fig, "lhs_speed_ecdf")
+
+    def _lhs_speed_ecdf_3d(self, df: pd.DataFrame) -> None:
+        '''
+        3-D scatter of convergence cost per LHS sample.
+
+        Axes
+        ----
+        x  k_conv         (number of generations to convergence)
+        y  Delta_t [min]  (elapsed wall-clock time)
+        z  f*  [kg]       (best final fitness of the sample)
+
+        Marker colour and size follow NP exactly as in ``_lhs_speed_ecdf``.
+        Each point is annotated with its 1-based sample index.  The view
+        elevation and azimuth are chosen so all three axes are readable without
+        overlapping labels.
+
+        Args:
+            df: LHS results table (must contain n_gens, elapsed_s, best_f_final).
+        '''
+        required = {"n_gens", "elapsed_s", "best_f_final"}
+        if not required.issubset(df.columns):
+            self.logger.warning(
+                "[CL3O] _lhs_speed_ecdf_3d: missing columns "
+                f"{required - set(df.columns)} -- skipping."
+            )
+            return
+
+        d = df.dropna(subset=list(required)).copy()
+        if d.empty:
+            return
+
+        # NP-proportional marker size; fall back to uniform if NP absent.
+        if "NP" in d.columns:
+            np_vals  = d["NP"].to_numpy(float)
+            sizes    = 30 + 180 * (np_vals - np_vals.min()) / (np.ptp(np_vals) or 1.0)
+            size_col = "NP"
+        else:
+            np_vals  = None
+            sizes    = 60
+            size_col = None
+
+        fig = plt.figure(figsize=(9, 6))
+        ax  = fig.add_subplot(111, projection="3d")
+
+        sc = ax.scatter(
+            d["n_gens"],
+            d["elapsed_s"] / 60,
+            d["best_f_final"],
+            s      = sizes,
+            c      = np_vals if size_col else "steelblue",
+            cmap   = "viridis" if size_col else None,
+            vmin   = 10 if size_col else None,
+            vmax   = 80 if size_col else None,
+            alpha  = 0.8,
+            zorder = 3,
+            depthshade = True,
+        )
+
+        # Annotate each point with 1-based sample index.
+        for _, row in d.iterrows():
+            idx = int(row["sample_idx"])
+            
+            if idx in (8, 9, 12, 13, 16, 18):
+                if idx == 12:
+                    ax.text(
+                        float(row["n_gens"]),
+                        float(row["elapsed_s"])*0.995 / 60,
+                        float(row["best_f_final"])*1.005,
+                        s          = str(idx + 1),
+                        fontsize   = 7,
+                        color      = "0.3",
+                        ha         = "right",
+                        va         = "bottom",
+                    )
+                elif idx == 13:
+                    ax.text(
+                        float(row["n_gens"])*1.01,
+                        float(row["elapsed_s"])*1.1 / 60,
+                        float(row["best_f_final"])*0.995,
+                        s          = str(idx + 1),
+                        fontsize   = 7,
+                        color      = "0.3",
+                        ha         = "left",
+                        va         = "top",
+                    )
+                else:
+                    ax.text(
+                        float(row["n_gens"])*1.01,
+                        float(row["elapsed_s"]) / 60,
+                        float(row["best_f_final"])*0.995,
+                        s          = str(idx + 1),
+                        fontsize   = 7,
+                        color      = "0.3",
+                        ha         = "left",
+                        va         = "top",
+                    )
+            else:
+                ax.text(
+                    float(row["n_gens"])*1.01,
+                    float(row["elapsed_s"]) / 60,
+                    float(row["best_f_final"])*1.005,
+                    s          = str(idx + 1),
+                    fontsize   = 7,
+                    color      = "0.3",
+                    ha         = "left",
+                    va         = "bottom",
+                )
+
+        if size_col:
+            cbar = fig.colorbar(sc, ax=ax, pad=0.12, shrink=0.6)
+            cbar.set_label(r"$\mathrm{NP}$")
+            cbar.set_ticks([10, 20, 30, 40, 50, 60, 70, 80])
+
+        ax.set_xlabel(r"$k_{\mathrm{conv}}$",labelpad=8)
+        ax.set_ylabel(r"$\Delta t$ [min]",labelpad=8)
+        ax.set_zlabel(r"$f^\star_{\mathrm{min}}$ [kg]",labelpad=8)
+        
+        ax.xaxis.set_major_formatter(
+            plt.FuncFormatter(lambda v, _: _cfmt(v, 0))
+        )
+        ax.yaxis.set_major_formatter(
+            plt.FuncFormatter(lambda v, _: _cfmt(v, 1))
+        )
+        ax.zaxis.set_major_formatter(
+            plt.FuncFormatter(lambda v, _: _cfmt(v, 2))
+        )
+        pane_color = (0.985, 0.985, 0.985, 1)
+        for axis in (ax.xaxis, ax.yaxis, ax.zaxis):
+            axis._axinfo["grid"].update({
+                "color": (0.55, 0.55, 0.55, 0.18),
+                "linewidth": 0.5,
+            })
+            axis.set_pane_color(pane_color)
+        
+        ax.tick_params(colors="0.25")
+        ax.view_init(elev=15, azim=-30)
+        fig.tight_layout()
+        self._save(fig, "lhs_speed_ecdf_3d")
 
     # ----------------------------------------------------------- sensitivity
     def plot_sensitivity(self) -> None:
@@ -1225,6 +1401,96 @@ class RunStats:
             panel_titles=["Seção Simétrica", "Seção Assimétrica"],
         )
 
+    # ------------------------------------------------------- seed sensitivity
+    def plot_seed_sensitivity(self) -> None:
+        '''
+        Render the seed-sensitivity figure (skips gracefully if missing).
+
+        Figure produced
+        ---------------
+        seed_f_boxplot  -- boxplot of f* per sample with per-seed strip
+                           annotations and a secondary axis for computational
+                           cost k_conv * Delta_t [gen x min].
+        '''
+        if self.data.seed_csv is None or not Path(self.data.seed_csv).is_file():
+            self.logger.warning(
+                "[CL3O] seed_csv not configured or file not found -- "
+                "skipping seed-sensitivity figures.\n"
+                f"| path : {self.data.seed_csv}"
+            )
+            return
+        df = StatsHelper.load_seed_sensitivity(self.data.seed_csv)
+        self._seed_f_boxplot(df)
+
+    def _seed_f_boxplot(self, df: pd.DataFrame) -> None:
+        '''
+        Boxplot of f* per LHS sample with a colour-coded strip per seed.
+
+        One box per sample (x-tick = bare sample index). Each seed gets a
+        fixed colour from tab10; strip points are jittered horizontally.
+        A single legend maps colour to seed value.
+
+        Args:
+            df: Cleaned seed table with columns sample, seed, f*
+                (as returned by StatsHelper.load_seed_sensitivity).
+        '''
+        d       = df.copy()
+        samples = sorted(d["sample"].unique())
+        seeds   = sorted(d["seed"].unique())
+        n       = len(samples)
+        palette = {s: c for s, c in zip(seeds, plt.get_cmap("tab10").colors)}
+        x_pos   = {s: i for i, s in enumerate(samples)}
+
+        fig, ax = plt.subplots(figsize=(max(5, n * 2.5), 5))
+
+        # ---- boxplot ----------------------------------------------------------
+        box_data = [d.loc[d["sample"] == s, "f*"].to_numpy(float) for s in samples]
+        bp = ax.boxplot(
+            box_data,
+            positions    = list(range(n)),
+            widths       = 0.4,
+            patch_artist = True,
+            showfliers   = False,
+            zorder       = 2,
+        )
+        for patch in bp["boxes"]:
+            patch.set(facecolor="steelblue", alpha=0.30)
+        for element in ("medians", "whiskers", "caps"):
+            for line in bp[element]:
+                line.set(color="0.3", linewidth=1.2)
+
+        # ---- strip points coloured by seed ------------------------------------
+        for s in samples:
+            xi  = x_pos[s]
+            sub = d[d["sample"] == s].sort_values("seed")
+            for (_, row) in sub.iterrows():
+                ax.scatter(
+                    xi, float(row["f*"]),
+                    color  = palette[row["seed"]],
+                    s      = 20,
+                    marker = 'd',
+                    zorder = 4,
+                )
+
+        # ---- legend -----------------------------------------------------------
+        handles = [
+            Line2D([], [], linestyle="None", marker="d",
+                   color=palette[s], label=f"seed {s}")
+            for s in seeds
+        ]
+        ax.legend(handles=handles, fontsize=9, loc="upper right")
+
+        # ---- formatting -------------------------------------------------------
+        ax.set_xticks(range(n))
+        ax.set_yticks([33.5, 34, 34.5, 35, 35.5, 36, 36.5])
+        ax.set_xticklabels([str(s) for s in samples])
+        ax.set_xlabel(r"Amostra")
+        ax.set_ylabel(r"$f^\star_{\mathrm{min}}$ [kg]")
+        ax.yaxis.set_major_formatter(_comma_fmt(2))
+        ax.grid(axis="y", alpha=0.3)
+        fig.tight_layout()
+        self._save(fig, "seed_f_boxplot")
+
     # ------------------------------------------------------------------- all
     def run_all(self) -> None:
         '''Render every available figure; skip sources with missing inputs.'''
@@ -1236,6 +1502,8 @@ class RunStats:
         self.plot_fea_validation()
         self.logger.info("Generating cross-section validation figures ...")
         self.plot_geom_validation()
+        self.logger.info("Generating seed-sensitivity figures ...")
+        self.plot_seed_sensitivity()
         self.logger.info("Generating best-design figures ...")
         # self.plot_best_design()
         # self.logger.info(f"Done. Figures written to {self.data.out_dir}")
@@ -1248,8 +1516,9 @@ class RunStats:
 if __name__ == "__main__":
     data = StatsData(
         aircraft = "da62",
-        sweep    = "tune-de-4",
+        sweep    = "tune-de-5",
         # run_name = "da62_tune-de-3_LHS-0",
-        run_name = RUN_NAME,
+        run_name = _RUN_NAME,
+        seed_csv = ROOT_DIR / "tools" / "output" / "seed_por_sample.xlsx",
     )
     RunStats(data).run_all()

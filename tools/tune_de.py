@@ -90,8 +90,8 @@ from cl3o.main import RunCLEO, _resolve_db_specs, DatabaseSpec, MainHelpers
 _AIRCRAFT    = "DA62"
 _N_SAMPLES   = 20      # LHS sample size (override with --samples)
 _K_MAX_TUNE  = 200
-_BASE_SEED   = 42     # seed offset; sample i uses _BASE_SEED + i
-_SWEEP_NAME  = "tune-de-3"
+_BASE_SEED   = 67      # seed offset; sample i uses _BASE_SEED + i
+_SWEEP_NAME  = "tune-de-6"
 _OUT_DIR     = Path(__file__).resolve().parent / "output" / _SWEEP_NAME
 
 # Samples run in isolated child processes so the OS fully reclaims each
@@ -556,7 +556,7 @@ def main() -> None:
     parser.add_argument("--name",    type=str, default=_SWEEP_NAME,
                         help=f"Sweep name used for output subdirectory names "
                              f"(default '{_SWEEP_NAME}').")
-    parser.add_argument("--seed",    type=int, default=0,
+    parser.add_argument("--seed",    type=int, default=_BASE_SEED,
                         help="RNG seed for LHS sampling (default 0).")
     args = parser.parse_args()
 
@@ -566,7 +566,7 @@ def main() -> None:
     rng         = np.random.default_rng(args.seed)
     params_list = _lhs_samples(args.samples, _PARAM_RANGES, rng)
 
-    csv_lhs = out_dir / "lhs_samples_2.csv"
+    csv_lhs = out_dir / "lhs_samples.csv"
     with open(csv_lhs, "w", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=list(_PARAM_RANGES.keys()))
         writer.writeheader()

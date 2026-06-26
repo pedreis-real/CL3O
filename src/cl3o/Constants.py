@@ -34,17 +34,15 @@ WING_SIDE = "left"                                   # "right" | "left"
 WING_SIDE_SIGN = +1.0 if WING_SIDE == "right" else -1.0
 
 # Differential Evolution default hyper-parameters
-# Latin-Hypercube sample #14 from tune-de-3:
-# NP = 23, CR = 0.9089, F = 0.7081, lambda = 0.3930 (stall - 50)
-DE_HYPERPAR: dict = {
-    'NP'             : 23,
-    'CR'             : 0.9089,
-    'F'              : 0.7081,
-    'lambda'         : 0.3930,
+DE_HYPERPAR: dict = {           # sample 17 from tune-de-5 (seed 67)
+    'NP'     : 34,
+    'CR'     : 0.9685802379423477,
+    'F'      : 0.7396691550210645,
+    'lambda' : 0.8004037366699277,
     'k_max'          : 400,
     'seed'           : 67,
-    'std_tol'        : 0.01,    # std_tol * mean_f < std_f ||| 0.01 -> 1 gram (mass) of std
-    'stall_patience' : 80,      # gens of no best-f improvement -> stop
+    'std_tol'        : 0.001,    # std_tol * mean_f < std_f ||| 0.01 -> 1 gram (mass) of std
+    'stall_patience' : 200,      # gens of no best-f improvement -> stop
 }
 
 # Relative tolerance used to detect best-f improvement for the stall counter
@@ -53,50 +51,53 @@ STALL_REL_TOL = 0.01    # 1 gram order
 # Optimization design-vector boundaries
 OPT_LIMS = {
     'xw1'          : (0.10, 0.40),
-    'xw2'          : (0.30, 0.65),  # may overlap xw1; swap enforced at decode
-    # 'xw2'          : (0.30, 0.75),  # may overlap xw1; swap enforced at decode
+    # 'xw2'          : (0.30, 0.65),  # may overlap xw1; swap enforced at decode
+    'xw2'          : (0.30, 0.75),  # may overlap xw1; swap enforced at decode
     'bfk'          : (0.02, 0.10),
-    'layup_skin'   : (0, 11),       # ls1, ls2  - AP/QI group (torsion/shear)
-    'layup_web'    : (0, 11),       # lw1, lw2  - AP/QI group (torsion/shear)
-    'layup_flange' : (0, 11),        # lf1..lf4  - UD/CRS group (normal stress)
-    # 'layup_skin'   : (6, 11),       # ls1, ls2  - AP/QI group (torsion/shear)
-    # 'layup_web'    : (6, 11),       # lw1, lw2  - AP/QI group (torsion/shear)
-    # 'layup_flange' : (0, 5),        # lf1..lf4  - UD/CRS group (normal stress)
+    # 'layup_skin'   : (0, 11),       # ls1, ls2
+    # 'layup_web'    : (0, 11),       # lw1, lw2
+    # 'layup_flange' : (0, 11),       # lf1..lf4
+    'layup_skin'   : (6, 11),       # ls1, ls2  - AP/QI group (torsion/shear)
+    'layup_web'    : (6, 11),       # lw1, lw2  - AP/QI group (torsion/shear)
+    'layup_flange' : (0, 5),        # lf1..lf4  - UD/CRS group (normal stress)
     'fl_tpr'       : (0.01, 1.0),
 }
 
 # Canonical 0-based ordering of the curated laminate catalogue.
 # Index k in the DE design vector maps to LAYUP_ORDER[k] (i.e. MAT{k+1} in
-# laminate_db). Groups: UD 0-2, CRS 3-5, AP 6-8, QI 9-11.
-LAYUP_ORDER: list[str] = [
-    "MAT_CFRP_AS4_UD24",    # 0  - UD   CFRP AS4
-    "MAT_CFRP_AS4_CRS24",   # 1  - CRS  CFRP AS4
-    "MAT_CFRP_AS4_AP24",    # 2  - AP   CFRP AS4
-    "MAT_CFRP_AS4_QI24",    # 3  - QI   CFRP AS4
-    "MAT_CFRP_IM7_UD24",    # 4  - UD   CFRP IM7
-    "MAT_CFRP_IM7_CRS24",   # 5  - CRS  CFRP IM7
-    "MAT_CFRP_IM7_AP24",    # 6  - AP   CFRP IM7
-    "MAT_CFRP_IM7_QI24",    # 7  - QI   CFRP IM7
-    "MAT_SAND-HC_UD",       # 8  - UD   sandwich HC
-    "MAT_SAND-HC_CRS",      # 9  - CRS  sandwich HC
-    "MAT_SAND-HC_AP",       # 10 - AP   sandwich HC
-    "MAT_SAND-HC_QI",       # 11 - QI   sandwich HC
-]
+# laminate_db). 
 
-# LAYUP_ORDER: list[str] = [  # old     new 
-#     "MAT_CFRP_AS4_UD24",    # 0       0   - UD   CFRP AS4
-#     "MAT_CFRP_IM7_UD24",    # 3       1   - UD   CFRP IM7
-#     "MAT_SAND-HC_UD",       # 6       2   - UD   sandwich HC
-#     "MAT_CFRP_AS4_CRS24",   # 9       3   - CRS  CFRP AS4
-#     "MAT_CFRP_IM7_CRS24",   # 1       4   - CRS  CFRP IM7
-#     "MAT_SAND-HC_CRS",      # 4       5   - CRS  sandwich HC
-#     "MAT_CFRP_AS4_AP24",    # 7       6   - AP   CFRP AS4
-#     "MAT_CFRP_IM7_AP24",    # 10      7   - AP   CFRP IM7
-#     "MAT_SAND-HC_AP",       # 2       8   - AP   sandwich HC
-#     "MAT_CFRP_AS4_QI24",    # 5       9   - QI   CFRP AS4
-#     "MAT_CFRP_IM7_QI24",    # 8       10  - QI   CFRP IM7
-#     "MAT_SAND-HC_QI",       # 11      11  - QI   sandwich HC
+# Groups: AS4 0-3, IM7 4-7, SAND 8-11.
+# LAYUP_ORDER: list[str] = [
+#     "MAT_CFRP_AS4_UD24",    # 0  - UD   CFRP AS4
+#     "MAT_CFRP_AS4_CRS24",   # 1  - CRS  CFRP AS4
+#     "MAT_CFRP_AS4_AP24",    # 2  - AP   CFRP AS4
+#     "MAT_CFRP_AS4_QI24",    # 3  - QI   CFRP AS4
+#     "MAT_CFRP_IM7_UD24",    # 4  - UD   CFRP IM7
+#     "MAT_CFRP_IM7_CRS24",   # 5  - CRS  CFRP IM7
+#     "MAT_CFRP_IM7_AP24",    # 6  - AP   CFRP IM7
+#     "MAT_CFRP_IM7_QI24",    # 7  - QI   CFRP IM7
+#     "MAT_SAND-HC_UD",       # 8  - UD   sandwich HC
+#     "MAT_SAND-HC_CRS",      # 9  - CRS  sandwich HC
+#     "MAT_SAND-HC_AP",       # 10 - AP   sandwich HC
+#     "MAT_SAND-HC_QI",       # 11 - QI   sandwich HC
 # ]
+
+# Groups: UD 0-2, CRS 3-5, AP 6-8, QI 9-11.
+LAYUP_ORDER: list[str] = [  # old     new 
+    "MAT_CFRP_AS4_UD24",    # 0       0   - UD   CFRP AS4
+    "MAT_CFRP_IM7_UD24",    # 3       1   - UD   CFRP IM7
+    "MAT_SAND-HC_UD",       # 6       2   - UD   sandwich HC
+    "MAT_CFRP_AS4_CRS24",   # 9       3   - CRS  CFRP AS4
+    "MAT_CFRP_IM7_CRS24",   # 1       4   - CRS  CFRP IM7
+    "MAT_SAND-HC_CRS",      # 4       5   - CRS  sandwich HC
+    "MAT_CFRP_AS4_AP24",    # 7       6   - AP   CFRP AS4
+    "MAT_CFRP_IM7_AP24",    # 10      7   - AP   CFRP IM7
+    "MAT_SAND-HC_AP",       # 2       8   - AP   sandwich HC
+    "MAT_CFRP_AS4_QI24",    # 5       9   - QI   CFRP AS4
+    "MAT_CFRP_IM7_QI24",    # 8       10  - QI   CFRP IM7
+    "MAT_SAND-HC_QI",       # 11      11  - QI   sandwich HC
+]
 
 # Penalty paremeters
 PENALTY_VARS = {
